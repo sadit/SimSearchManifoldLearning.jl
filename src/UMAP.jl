@@ -4,7 +4,7 @@ using Arpack
 using Distances
 using LinearAlgebra
 using LsqFit: curve_fit
-using NearestNeighborDescent
+using SimilaritySearch
 using SparseArrays
 
 include("utils.jl")

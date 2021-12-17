@@ -12,11 +12,12 @@ function initialize_embedding(graph::AbstractMatrix{T}, n_components, ::Val{:spe
         @info "$e\nError encountered in spectral_layout; defaulting to random layout"
         embed = initialize_embedding(graph, n_components, Val(:random))
     end
-    return embed
+
+    embed
 end
 
 function initialize_embedding(graph::AbstractMatrix{T}, n_components, ::Val{:random}) where {T}
-    return [20 .* rand(T, n_components) .- 10 for _ in 1:size(graph, 1)]
+    [20 .* rand(T, n_components) .- 10 for _ in 1:size(graph, 1)]
 end
 
 """
@@ -96,17 +97,16 @@ function optimize_embedding(graph,
     self_reference = query_embedding === ref_embedding
 
     alpha = initial_alpha
+    sqeuclidean = SqEuclidean()
     for e in 1:n_epochs
         @inbounds for i in 1:size(graph, 2)
             for ind in nzrange(graph, i)
                 j = rowvals(graph)[ind]
                 p = nonzeros(graph)[ind]
                 if rand() <= p
-                    sdist = evaluate(SqEuclidean(), query_embedding[i], ref_embedding[j])
+                    sdist = evaluate(sqeuclidean, query_embedding[i], ref_embedding[j])
                     if sdist > 0
                         delta = (-2 * a * b * sdist^(b-1))/(1 + a*sdist^b)
-                    else
-                        delta = 0
                     end
                     @simd for d in eachindex(query_embedding[i])
                         grad = clamp(delta * (query_embedding[i][d] - ref_embedding[j][d]), -4, 4)
@@ -121,7 +121,7 @@ function optimize_embedding(graph,
                         if i == k && self_reference
                             continue
                         end
-                        sdist = evaluate(SqEuclidean(), query_embedding[i], ref_embedding[k])
+                        sdist = evaluate(sqeuclidean, query_embedding[i], ref_embedding[k])
                         if sdist > 0
                             delta = (2 * gamma * b) / ((1//1000 + sdist)*(1 + a*sdist^b))
                         else

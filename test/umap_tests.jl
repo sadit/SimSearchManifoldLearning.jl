@@ -1,27 +1,22 @@
 
 @testset "umap tests" begin
-
     @testset "constructor" begin
         @testset "argument validation tests" begin
             data = rand(5, 10)
             @test_throws ArgumentError UMAP_([1. 1.]; n_neighbors=0) # n_neighbors error
             @test_throws ArgumentError UMAP_([1. 1.], 0; n_neighbors=1) # n_comps error
-            @test_throws ArgumentError UMAP_([1. 1.], 2; n_neighbors=1) # n_comps error
-            @test_throws ArgumentError UMAP_([1. 1.; 1. 1.; 1. 1.];
-                    n_neighbors=1, min_dist = 0.) # min_dist error
+            # @test_throws ArgumentError UMAP_([1. 1.], 2; n_neighbors=1) # n_comps error
+            @test_throws ArgumentError UMAP_([1. 1.; 1. 1.; 1. 1.]; n_neighbors=1, min_dist = 0.) # min_dist error
         end
     end
 
     @testset "input type stability tests" begin
-        data = rand(5, 100)
-        umap_ = UMAP_(data; init=:random)
-        @test umap_ isa UMAP_{Float64}
+        umap_ = UMAP_(rand(5, 100); init=:random)
+        @test umap_ isa UMAP_{Float32}  ## input Float64 -> output Float32 (SimilaritySearch distances are Float32 and the embedding takes distances as input)
         @test size(umap_.graph) == (100, 100)
         @test size(umap_.embedding) == (2, 100)
-        @test umap_.data === data
-
-        data = rand(Float32, 5, 100)
-        @test UMAP_(data; init=:random) isa UMAP_{Float32}
+        ## @test umap_.data === data
+        @test UMAP_(rand(Float32, 5, 100); init=:random) isa UMAP_{Float32}
     end
 
     @testset "fuzzy_simpl_set" begin
@@ -166,17 +161,16 @@
             data = rand(5, 10)
             model = UMAP_(data, 2, n_neighbors=2, n_epochs=1)
             query = rand(5, 8)
-            @test_throws ArgumentError transform(model, rand(6, 8); n_neighbors=3) # query size error
+            # @test_throws ArgumentError transform(model, rand(6, 8); n_neighbors=3) # query size error  => the SimilaritySearch's index sees objects as a blackbox
             @test_throws ArgumentError transform(model, query; n_neighbors=0) # n_neighbors error
             @test_throws ArgumentError transform(model, query; n_neighbors=15) # n_neighbors error
             @test_throws ArgumentError transform(model, query; n_neighbors=1, min_dist = 0.) # min_dist error
 
-            model = UMAP_(model.graph, model.embedding, rand(6, 10), model.knns, model.dists)
-            @test_throws ArgumentError transform(model, query; n_neighbors=3) # data size error
-            model = UMAP_(model.graph, model.embedding, rand(5, 9), model.knns, model.dists)
-            @test_throws ArgumentError transform(model, query; n_neighbors=3) # data size error
+            model = UMAP_(model.graph, model.embedding, model.index, model.n_neighbors)
+            @test size(transform(model, view(query, :, 1:4); n_neighbors=3)) == (2, 4)
         end
-        
+
+     
         @testset "transform test" begin
             data = rand(5, 30)
             model = UMAP_(data, 2, n_neighbors=2, n_epochs=1)
