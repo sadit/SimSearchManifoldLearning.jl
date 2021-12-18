@@ -97,7 +97,7 @@ function UMAP_(
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
 
-    return UMAP_(graph, hcat(embedding...), index, n_neighbors)
+    return UMAP_(graph, embedding, index, n_neighbors)
 end
 
 """
@@ -140,7 +140,7 @@ function transform(model::UMAP_, Q;
     Q = convert(AbstractDatabase, Q)
 
     # argument checking
-    length(model.index) > n_neighbors > 0             || throw(ArgumentError("n_neighbors must be greater than 0"))
+    length(model.index) > n_neighbors > 0            || throw(ArgumentError("n_neighbors must be greater than 0"))
     learning_rate > 0                                || throw(ArgumentError("learning_rate must be greater than 0"))
     min_dist > 0                                     || throw(ArgumentError("min_dist must be greater than 0"))
     0 ≤ set_operation_ratio ≤ 1                      || throw(ArgumentError("set_operation_ratio must lie in [0, 1]"))
@@ -154,11 +154,8 @@ function transform(model::UMAP_, Q;
     knns, dists = searchbatch(model.index, Q, n_neighbors; parallel=true)
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio, false)
 
-    embedding = initialize_embedding(graph, model.embedding)
-    ref_embedding = collect(eachcol(model.embedding))
-    embedding = optimize_embedding(graph, embedding, ref_embedding, n_epochs, learning_rate, min_dist, spread, repulsion_strength, neg_sample_rate, a, b, move_ref=false)
-
-    reduce(hcat, embedding)
+    E = initialize_embedding(graph, model.embedding)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, min_dist, spread, repulsion_strength, neg_sample_rate, a, b, move_ref=false)
 end
 
 """
