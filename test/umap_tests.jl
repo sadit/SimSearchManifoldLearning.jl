@@ -153,9 +153,10 @@
             # @test_throws ArgumentError transform(model, rand(6, 8); n_neighbors=3) # query size error  => the SimilaritySearch's index sees objects as a blackbox
             @test_throws ArgumentError transform(model, query; n_neighbors=0) # n_neighbors error
             @test_throws ArgumentError transform(model, query; n_neighbors=15) # n_neighbors error
-            @test_throws ArgumentError transform(model, query; n_neighbors=1, min_dist = 0.) # min_dist error
+            # @test_throws ArgumentError transform(model, query; n_neighbors=1, min_dist = 0.) # min_dist error
 
-            model = UMAP_(model.graph, model.embedding, model.index, model.n_neighbors)
+            a, b = fit_ab(0.1, 1.0)
+            model = UMAP_(model.graph, model.embedding, model.index, model.n_neighbors, a, b)
             t = transform(model, view(query, :, 1:4); n_neighbors=3)
             @test size(t) == (2, 4)
         end

@@ -3,6 +3,7 @@ Utilities used by UMAP.jl
 =#
 
 
+@inline fit_ab(min_dist, spread) = fit_ab(min_dist, spread, nothing, nothing)
 @inline fit_ab(_, __, a, b) = a, b
 
 """

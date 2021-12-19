@@ -88,67 +88,71 @@ function optimize_embedding(graph,
                             ref_embedding_::AbstractMatrix,
                             n_epochs,
                             initial_alpha,
-                            min_dist,
-                            spread,
                             gamma,
                             neg_sample_rate,
-                            _a=nothing,
-                            _b=nothing;
+                            a,
+                            b;
                             move_ref::Bool=false)
-    a, b = fit_ab(min_dist, spread, _a, _b)
     self_reference = query_embedding_ === ref_embedding_
     query_embedding = MatrixDatabase(query_embedding_)
     ref_embedding = MatrixDatabase(ref_embedding_)
     alpha = initial_alpha
     sqeuclidean = SqEuclidean()
-    for e in 1:n_epochs
+
+    initial_alpha_n_epochs = initial_alpha / n_epochs
+
+    @time for e in 1:n_epochs
         @inbounds for i in 1:size(graph, 2)
             QEi = query_embedding[i]
 
             for ind in nzrange(graph, i)
                 j = rowvals(graph)[ind]
                 p = nonzeros(graph)[ind]
-                if rand() <= p
-                    REj = ref_embedding[j]
-                    sdist = evaluate(sqeuclidean, QEi, REj)
-                    delta = if sdist > 0
-                        (-2 * a * b * sdist^(b-1))/(1 + a*sdist^b)
-                    else
-                        0.0
-                    end
+                rand() > p && continue
+
+                REj = ref_embedding[j]
+                sdist = evaluate(sqeuclidean, QEi, REj)
+                delta = 0.0
+                if sdist > 0
+                    delta = (-2.0 * a * b * sdist^(b-1.0))/(1.0 + a*sdist^b)
+                end
+                if move_ref
                     @simd for d in eachindex(QEi)
                         grad = clamp(delta * (QEi[d] - REj[d]), -4, 4)
                         QEi[d] += alpha * grad
-                        if move_ref
-                            REj[d] -= alpha * grad
-                        end
+                        REj[d] -= alpha * grad
                     end
+                else
+                    @simd for d in eachindex(QEi)
+                        QEi[d] += alpha * clamp(delta * (QEi[d] - REj[d]), -4, 4)
+                    end
+                end
 
-                    for _ in 1:neg_sample_rate
-                        k = rand(eachindex(ref_embedding))
-                        if i == k && self_reference
-                            continue
-                        end
-                        sdist = evaluate(sqeuclidean, QEi, ref_embedding[k])
-                        if sdist > 0
-                            delta = (2 * gamma * b) / ((1//1000 + sdist)*(1 + a*sdist^b))
-                        else
-                            delta = 0
-                        end
+                for _ in 1:neg_sample_rate
+                    k = rand(eachindex(ref_embedding))
+                    if i == k && self_reference
+                        continue
+                    end
+                    REk = ref_embedding[k]
+                    sdist = evaluate(sqeuclidean, QEi, REk)
+                    delta = 0.0
+                    if sdist > 0
+                        delta = (2.0 * gamma * b) / ((0.001 + sdist)*(1.0 + a*sdist^b))
+                    end
+                    if delta > 0
                         @simd for d in eachindex(QEi)
-                            if delta > 0
-                                grad = clamp(delta * (QEi[d] - ref_embedding[k][d]), -4, 4)
-                            else
-                                grad = 4
-                            end
-                            QEi[d] += alpha * grad
+                            QEi[d] += alpha * clamp(delta * (QEi[d] - REk[d]), -4, 4)
+                        end
+                    else
+                        @simd for d in eachindex(QEi)
+                            QEi[d] += alpha * 4.0
                         end
                     end
-
                 end
             end
         end
-        alpha = initial_alpha*(1 - e//n_epochs)
+
+        alpha = initial_alpha - e * initial_alpha_n_epochs
     end
 
     return query_embedding_

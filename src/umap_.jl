@@ -6,15 +6,17 @@ struct UMAP_{S <: Real, M <: AbstractMatrix{S}, N <: AbstractMatrix{S}, IndexTyp
     embedding::N
     index::IndexType
     n_neighbors::Int
+    a::Float64
+    b::Float64
 
-    function UMAP_{S, M, N, IndexType}(graph, embedding, index::IndexType, n_neighbors) where {S<:Real, M<:AbstractMatrix{S}, N<:AbstractMatrix{S}, IndexType}
+    function UMAP_{S, M, N, IndexType}(graph, embedding, index::IndexType, n_neighbors, a, b) where {S<:Real, M<:AbstractMatrix{S}, N<:AbstractMatrix{S}, IndexType}
         issymmetric(graph) || isapprox(graph, graph') || error("UMAP_ constructor expected graph to be a symmetric matrix")
-        new(graph, embedding, index, n_neighbors)
+        new(graph, embedding, index, n_neighbors, a, b)
     end
 end
 
-function UMAP_(graph::M, embedding::N, index::IndexType, n_neighbors) where {S<:Real, M<:AbstractMatrix{S}, N<:AbstractMatrix{S}, IndexType}
-    return UMAP_{S, M, N, IndexType}(graph, embedding, index, n_neighbors)
+function UMAP_(graph::M, embedding::N, index::IndexType, n_neighbors, a, b) where {S<:Real, M<:AbstractMatrix{S}, N<:AbstractMatrix{S}, IndexType}
+    return UMAP_{S, M, N, IndexType}(graph, embedding, index, n_neighbors, a, b)
 end
 
 const SMOOTH_K_TOLERANCE = 1e-5
@@ -74,8 +76,8 @@ function UMAP_(
     local_connectivity::Integer = 1,
     repulsion_strength::Real = 1,
     neg_sample_rate::Integer = 5,
-    a::Union{Real, Nothing} = nothing,
-    b::Union{Real, Nothing} = nothing
+    a = nothing,
+    b = nothing
 )
     index = data_or_index isa AbstractMatrix ? ExhaustiveSearch(; db=data_or_index, dist=SqEuclidean()) : data_or_index
     n = length(index)
@@ -93,11 +95,12 @@ function UMAP_(
     dists = @view dists[2:n_neighbors+1, :]
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio)
     embedding = initialize_embedding(graph, n_components, Val(init))
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, min_dist, spread, repulsion_strength, neg_sample_rate, move_ref=true)
+    a, b = fit_ab(min_dist, spread, a, b)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b, move_ref=true)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
 
-    return UMAP_(graph, embedding, index, n_neighbors)
+    return UMAP_(graph, embedding, index, n_neighbors, a, b)
 end
 
 """
@@ -128,21 +131,18 @@ function transform(model::UMAP_, Q;
                    n_neighbors = model.n_neighbors,
                    n_epochs::Integer = 100,
                    learning_rate::Real = 1,
-                   min_dist::Real = 0.1f0,
-                   spread::Real = 1,
                    set_operation_ratio::Real = 1,
                    local_connectivity::Integer = 1,
                    repulsion_strength::Real = 1,
                    neg_sample_rate::Integer = 5,
-                   a::Union{Real, Nothing} = nothing,
-                   b::Union{Real, Nothing} = nothing
+                   a = model.a,
+                   b = model.b
                    ) where {S<:Real}
     Q = convert(AbstractDatabase, Q)
 
     # argument checking
     length(model.index) > n_neighbors > 0            || throw(ArgumentError("n_neighbors must be greater than 0"))
     learning_rate > 0                                || throw(ArgumentError("learning_rate must be greater than 0"))
-    min_dist > 0                                     || throw(ArgumentError("min_dist must be greater than 0"))
     0 ≤ set_operation_ratio ≤ 1                      || throw(ArgumentError("set_operation_ratio must lie in [0, 1]"))
     local_connectivity > 0                           || throw(ArgumentError("local_connectivity must be greater than 0"))
     length(model.index) == size(model.embedding, 2)  || throw(ArgumentError("model.index must have same number of columns as model.embedding"))
@@ -155,7 +155,7 @@ function transform(model::UMAP_, Q;
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio, false)
 
     E = initialize_embedding(graph, model.embedding)
-    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, min_dist, spread, repulsion_strength, neg_sample_rate, a, b, move_ref=false)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b, move_ref=false)
 end
 
 """
