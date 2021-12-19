@@ -118,13 +118,14 @@ function optimize_embedding(graph,
                 end
                 if move_ref
                     @simd for d in eachindex(QEi)
-                        grad = clamp(delta * (QEi[d] - REj[d]), -4, 4)
+                        grad = clamp(delta * (QEi[d] - REj[d]), -4.0, 4.0)
                         QEi[d] += alpha * grad
                         REj[d] -= alpha * grad
                     end
                 else
                     @simd for d in eachindex(QEi)
-                        QEi[d] += alpha * clamp(delta * (QEi[d] - REj[d]), -4, 4)
+                        grad = clamp(delta * (QEi[d] - REj[d]), -4.0, 4.0)
+                        QEi[d] += alpha * grad
                     end
                 end
 
@@ -141,7 +142,8 @@ function optimize_embedding(graph,
                     end
                     if delta > 0
                         @simd for d in eachindex(QEi)
-                            QEi[d] += alpha * clamp(delta * (QEi[d] - REk[d]), -4, 4)
+                            grad = clamp(delta * (QEi[d] - REk[d]), -4.0, 4.0)
+                            QEi[d] += alpha * grad
                         end
                     else
                         @simd for d in eachindex(QEi)
