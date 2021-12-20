@@ -67,7 +67,7 @@ function UMAP_(
     n_components::Integer = 2;
     n_neighbors::Integer = 15,
     n_epochs::Integer = 300,
-    learning_rate::Real = 1.0,
+    learning_rate::Real = 1f0,
     init::Symbol = :spectral,
     min_dist::Real = 0.1f0,
     spread::Real = 1f0,
@@ -83,6 +83,7 @@ function UMAP_(
     spread = convert(Float32, spread)
     set_operation_ratio = convert(Float32, set_operation_ratio)
     learning_rate = convert(Float32, learning_rate)
+    repulsion_strength = convert(Float32, repulsion_strength)
     index = data_or_index isa AbstractMatrix ? ExhaustiveSearch(; db=data_or_index, dist=SqEuclidean()) : data_or_index
     n = length(index)
     n > n_neighbors > 0 || throw(ArgumentError("the number of examples must be greater than n_neighbors and n_neighbors must be greater than 0"))
@@ -103,6 +104,33 @@ function UMAP_(
     #       in the same manner and do a fuzzy simpl set intersection
 
     UMAP_(graph, embedding, index, n_neighbors, knns, dists, a, b)
+end
+
+"""
+    UMAP_(umap_::UMAP_, n_components)
+
+Reuses a previously computed model with a different number of components
+"""
+function UMAP_(U::UMAP_, n_components::Integer;
+        n_epochs=300,
+        learning_rate::Real = 1f0,
+        init::Symbol = :spectral,
+        repulsion_strength::Float32 = 1f0,
+        neg_sample_rate::Integer = 5,
+        a = U.a,
+        b = U.b,
+        parallel = Threads.nthreads() > 1
+    )
+    learning_rate = convert(Float32, learning_rate)
+    repulsion_strength = convert(Float32, repulsion_strength)
+
+    graph = U.graph
+    embedding = initialize_embedding(graph, n_components, Val(init))
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, move_ref=false)
+    # TODO: if target variable y is passed, then construct target graph
+    #       in the same manner and do a fuzzy simpl set intersection
+
+    UMAP_(graph, embedding, U.index, U.n_neighbors, U.knns, U.dists, a, b)
 end
 
 """

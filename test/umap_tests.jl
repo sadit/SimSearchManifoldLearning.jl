@@ -18,6 +18,13 @@
         @test UMAP_(rand(Float32, 5, 100); init=:random).graph isa AbstractMatrix{Float32}
     end
 
+    @testset "reusing umap" begin
+        umap1 = UMAP_(rand(5, 100), 2; init=:random)
+        umap2 = UMAP_(umap1, 3; init=:random)
+        @test size(umap1.embedding) == (2, 100)
+        @test size(umap2.embedding) == (3, 100)
+    end
+
     @testset "fuzzy_simpl_set" begin
         # knns = rand(1:50, 5, 50)
         # dists = rand(5, 50)
