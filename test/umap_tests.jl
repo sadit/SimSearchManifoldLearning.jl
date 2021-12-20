@@ -2,7 +2,6 @@
 @testset "umap tests" begin
     @testset "constructor" begin
         @testset "argument validation tests" begin
-            data = rand(5, 10)
             @test_throws ArgumentError UMAP_([1. 1.]; n_neighbors=0) # n_neighbors error
             @test_throws ArgumentError UMAP_([1. 1.], 0; n_neighbors=1) # n_comps error
             # @test_throws ArgumentError UMAP_([1. 1.], 2; n_neighbors=1) # n_comps error
@@ -12,11 +11,11 @@
 
     @testset "input type stability tests" begin
         umap_ = UMAP_(rand(5, 100); init=:random)
-        @test umap_ isa UMAP_{Float32}  ## input Float64 -> output Float32 (SimilaritySearch distances are Float32 and the embedding takes distances as input)
+        @test eltype(umap_.graph) == Float32  ## input Float64 -> output Float32 (SimilaritySearch distances are Float32 and the embedding takes distances as input)
         @test size(umap_.graph) == (100, 100)
         @test size(umap_.embedding) == (2, 100)
         ## @test umap_.data === data
-        @test UMAP_(rand(Float32, 5, 100); init=:random) isa UMAP_{Float32}
+        @test UMAP_(rand(Float32, 5, 100); init=:random).graph isa AbstractMatrix{Float32}
     end
 
     @testset "fuzzy_simpl_set" begin
@@ -71,7 +70,7 @@
         rhos, sigmas = smooth_knn_dists(knn_dists, 2, 1.5)
         @test rhos == [0., 1.5, 2.5]
     end
-
+    
     @testset "compute_membership_strengths" begin
         knns = [1 2 3; 2 1 2]
         dists = [0. 0. 0.; 2. 2. 3.]
@@ -92,17 +91,17 @@
         graph3 = sparse(sprand(3,5,0.4))
 
         n_epochs = 1
-        initial_alpha = 1.
-        min_dist = 1.
-        spread = 1.
-        gamma = 1.
+        initial_alpha = 1f0
+        min_dist = 1f0
+        spread = 1
+        gamma = 1f0
         neg_sample_rate = 5
         for graph in [graph1, graph2, graph3]
             ref_embedding = rand(2, size(graph, 1))
             old_ref_embedding = deepcopy(ref_embedding)
             query_embedding = rand(2, size(graph, 2))
-            res_embedding = optimize_embedding(graph, query_embedding, ref_embedding, n_epochs, initial_alpha, 
-                                               min_dist, spread, gamma, neg_sample_rate, move_ref=false)
+            a, b = fit_ab(min_dist, spread)
+            res_embedding = optimize_embedding(graph, query_embedding, ref_embedding, n_epochs, initial_alpha, gamma, neg_sample_rate, a, b, move_ref=false)
             @test res_embedding isa AbstractMatrix
             @test size(res_embedding) == size(query_embedding)
             @test isapprox(old_ref_embedding, ref_embedding, atol=1e-4)
@@ -156,7 +155,7 @@
             # @test_throws ArgumentError transform(model, query; n_neighbors=1, min_dist = 0.) # min_dist error
 
             a, b = fit_ab(0.1, 1.0)
-            model = UMAP_(model.graph, model.embedding, model.index, model.n_neighbors, a, b)
+            model = UMAP_(model.graph, model.embedding, model.index, model.n_neighbors, model.knns, model.dists, a, b)
             t = transform(model, view(query, :, 1:4); n_neighbors=3)
             @test size(t) == (2, 4)
         end

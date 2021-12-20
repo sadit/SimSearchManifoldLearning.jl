@@ -6,7 +6,7 @@ function initialize_embedding(graph::AbstractMatrix{T}, n_components, ::Val{:spe
         embed = spectral_layout(graph, n_components)
         # expand
         expansion = 10 / maximum(embed)
-        embed .= (embed .* expansion) .+ (1//10000) .* randn.(T)
+        embed .= (embed .* expansion) .+ 0.0001 .* randn.(T)
         # embed = collect(eachcol(embed))
     catch e
         @info "$e\nError encountered in spectral_layout; defaulting to random layout"
@@ -64,7 +64,7 @@ function spectral_layout(graph::SparseMatrixCSC{T},
 end
 
 """
-    optimize_embedding(graph, query_embedding_, ref_embedding_, n_epochs, initial_alpha, min_dist, spread, gamma, neg_sample_rate, _a=nothing, _b=nothing; move_ref=false) -> embedding
+    optimize_embedding(graph, query_embedding_, ref_embedding_, n_epochs, alpha, min_dist, spread, gamma, neg_sample_rate, _a=nothing, _b=nothing; move_ref=false) -> embedding
 
 Optimize an embedding by minimizing the fuzzy set cross entropy between the high and low dimensional simplicial sets using stochastic gradient descent.
 Optimize "query" samples with respect to "reference" samples.
@@ -74,7 +74,7 @@ Optimize "query" samples with respect to "reference" samples.
 - `query_embedding_`: a vector of length (n_samples,) of vectors representing the embedded data points to be optimized ("query" samples)
 - `ref_embedding_`: a vector of length (n_samples,) of vectors representing the embedded data points to optimize against ("reference" samples)
 - `n_epochs`: the number of training epochs for optimization
-- `initial_alpha`: the initial learning rate
+- `alpha`: the initial learning rate
 - `gamma`: the repulsive strength of negative samples
 - `neg_sample_rate`: the number of negative samples per positive sample
 - `_a`: this controls the embedding. If the actual argument is `nothing`, this is determined automatically by `min_dist` and `spread`.
@@ -86,76 +86,108 @@ Optimize "query" samples with respect to "reference" samples.
 function optimize_embedding(graph,
                             query_embedding_::AbstractMatrix,
                             ref_embedding_::AbstractMatrix,
-                            n_epochs,
-                            initial_alpha,
-                            gamma,
-                            neg_sample_rate,
-                            a,
-                            b;
-                            move_ref::Bool=false)
+                            n_epochs::Int,
+                            alpha::Float32,
+                            gamma::Float32,
+                            neg_sample_rate::Int,
+                            a::Float32,
+                            b::Float32;
+                            move_ref::Bool=false,
+                            parallel::Bool=false)
     self_reference = query_embedding_ === ref_embedding_
     query_embedding = MatrixDatabase(query_embedding_)
     ref_embedding = MatrixDatabase(ref_embedding_)
-    alpha = initial_alpha
-    sqeuclidean = SqEuclidean()
+    alpha_step = convert(Float32, alpha / n_epochs + eps(typeof(alpha)))
+    GR = rowvals(graph)
+    NZ = nonzeros(graph)
 
-    initial_alpha_n_epochs = initial_alpha / n_epochs
+    if parallel
+        for _ in 1:n_epochs
+            Threads.@threads for i in 1:size(graph, 2)
+                @inbounds QEi = query_embedding[i]
 
-    @time for e in 1:n_epochs
-        @inbounds for i in 1:size(graph, 2)
-            QEi = query_embedding[i]
+                @inbounds for ind in nzrange(graph, i)
+                    j = GR[ind]
+                    p = NZ[ind]
+                    rand() > p && continue
 
-            for ind in nzrange(graph, i)
-                j = rowvals(graph)[ind]
-                p = nonzeros(graph)[ind]
-                rand() > p && continue
+                    REj = ref_embedding[j]
+                    _gd_loop(QEi, REj, a, b, alpha, move_ref)
 
-                REj = ref_embedding[j]
-                sdist = evaluate(sqeuclidean, QEi, REj)
-                delta = 0.0
-                if sdist > 0
-                    delta = (-2.0 * a * b * sdist^(b-1.0))/(1.0 + a*sdist^b)
-                end
-                if move_ref
-                    @simd for d in eachindex(QEi)
-                        grad = clamp(delta * (QEi[d] - REj[d]), -4.0, 4.0)
-                        QEi[d] += alpha * grad
-                        REj[d] -= alpha * grad
-                    end
-                else
-                    @simd for d in eachindex(QEi)
-                        grad = clamp(delta * (QEi[d] - REj[d]), -4.0, 4.0)
-                        QEi[d] += alpha * grad
-                    end
-                end
-
-                for _ in 1:neg_sample_rate
-                    k = rand(eachindex(ref_embedding))
-                    if i == k && self_reference
-                        continue
-                    end
-                    REk = ref_embedding[k]
-                    sdist = evaluate(sqeuclidean, QEi, REk)
-                    delta = 0.0
-                    if sdist > 0
-                        delta = (2.0 * gamma * b) / ((0.001 + sdist)*(1.0 + a*sdist^b))
-                    end
-                    if delta > 0
-                        @simd for d in eachindex(QEi)
-                            grad = clamp(delta * (QEi[d] - REk[d]), -4.0, 4.0)
-                            QEi[d] += alpha * grad
+                    for _ in 1:neg_sample_rate
+                        k = rand(eachindex(ref_embedding))
+                        if i == k && self_reference
+                            continue
                         end
-                    else
-                        @simd for d in eachindex(QEi)
-                            QEi[d] += alpha * 4.0
-                        end
+                        _gd_neg_loop(QEi, ref_embedding[k], a, b, gamma, alpha)
                     end
                 end
             end
+            alpha -= alpha_step
         end
+    else
+        @time for _ in 1:n_epochs
+            @inbounds for i in 1:size(graph, 2)
+                QEi = query_embedding[i]
+                for ind in nzrange(graph, i)
+                    p = NZ[ind]
+                    rand() > p && continue
+                    j = GR[ind]
 
-        alpha = initial_alpha - e * initial_alpha_n_epochs
+                    REj = ref_embedding[j]
+                    _gd_loop(QEi, REj, a, b, alpha, move_ref)
+
+                    for _ in 1:neg_sample_rate
+                        k = rand(eachindex(ref_embedding))
+                        if i == k && self_reference
+                            continue
+                        end
+                        _gd_neg_loop(QEi, ref_embedding[k], a, b, gamma, alpha)
+                    end
+                end
+            end
+            alpha -= alpha_step
+        end
     end
 
-    return query_embedding_
+    query_embedding_
+end
+
+@inline function _gd_loop(QEi, REj, a::Float32, b::Float32, alpha::Float32, move_ref::Bool)
+    sdist = evaluate(SqEuclidean(), QEi, REj)
+
+    delta = 0f0
+    if sdist > 0
+        delta = (-2f0 * a * b * sdist^(b-1f0))/(1f0 + a * sdist^b)
+    end
+    if move_ref
+        @inbounds @simd for d in eachindex(QEi)
+            grad = clamp(delta * (QEi[d] - REj[d]), -4f0, 4f0)
+            QEi[d] += alpha * grad
+            REj[d] -= alpha * grad
+        end
+    else
+        @inbounds @simd for d in eachindex(QEi)
+            grad = clamp(delta * (QEi[d] - REj[d]), -4f0, 4f0)
+            QEi[d] += alpha * grad
+        end
+    end
+end
+
+@inline function _gd_neg_loop(QEi, REk, a::Float32, b::Float32, gamma::Float32, alpha::Float32)
+    sdist = evaluate(SqEuclidean(), QEi, REk)
+    delta = 0f0
+    if sdist > 0
+        delta = (2f0 * gamma * b) / ((0.001f0 + sdist)*(1f0 + a * sdist^b))
+    end
+    if delta > 0
+        @inbounds @simd for d in eachindex(QEi)
+            grad = clamp(delta * (QEi[d] - REk[d]), -4f0, 4f0)
+            QEi[d] += alpha * grad
+        end
+    else
+        @inbounds @simd for d in eachindex(QEi)
+            QEi[d] += alpha * 4f0
+        end
+    end
 end

@@ -13,7 +13,7 @@ Find a smooth approximation to the membership function of points embedded in ℜ
 This fits a smooth curve that approximates an exponential decay offset by `min_dist`,
 returning the parameters `(a, b)`.
 """
-function fit_ab(min_dist, spread, ::Nothing, ::Nothing)
+function fit_ab(min_dist, spread, ::Nothing, ::Nothing)::Tuple{Float32,Float32}
     ψ(d) = d >= min_dist ? exp(-(d - min_dist)/spread) : 1.
     xs = LinRange(0., spread*3, 300)
     ys = map(ψ, xs)
@@ -26,7 +26,7 @@ end
 
 # combine local fuzzy simplicial sets
 @inline function combine_fuzzy_sets(fs_set::AbstractMatrix{T},
-                                    set_op_ratio) where {T}
+                                    set_op_ratio::T) where {T}
     return set_op_ratio .* fuzzy_set_union(fs_set) .+
            (one(T) - set_op_ratio) .* fuzzy_set_intersection(fs_set)
 end

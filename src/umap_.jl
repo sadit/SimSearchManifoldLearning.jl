@@ -1,23 +1,22 @@
 # an implementation of Uniform Manifold Approximation and Projection
 # for Dimension Reduction, L. McInnes, J. Healy, J. Melville, 2018.
 
-struct UMAP_{S <: Real, M <: AbstractMatrix{S}, N <: AbstractMatrix{S}, IndexType}
-    graph::M
-    embedding::N
+struct UMAP_{GraphType<:AbstractMatrix, EmbeddingType<:AbstractMatrix, IndexType}
+    graph::GraphType
+    embedding::EmbeddingType
     index::IndexType
     n_neighbors::Int
-    a::Float64
-    b::Float64
+    knns::Matrix{Int32}
+    dists::Matrix{Float32}    
+    a::Float32
+    b::Float32
 
-    function UMAP_{S, M, N, IndexType}(graph, embedding, index::IndexType, n_neighbors, a, b) where {S<:Real, M<:AbstractMatrix{S}, N<:AbstractMatrix{S}, IndexType}
+    function UMAP_(graph::GraphType, embedding::EmbeddingType, index::IndexType, n_neighbors, knns, dists, a::Real, b::Real) where {GraphType<:AbstractMatrix, EmbeddingType<:AbstractMatrix, IndexType}
         issymmetric(graph) || isapprox(graph, graph') || error("UMAP_ constructor expected graph to be a symmetric matrix")
-        new(graph, embedding, index, n_neighbors, a, b)
+        new{GraphType, EmbeddingType, IndexType}(graph, embedding, index, n_neighbors, knns, dists, a, b)
     end
 end
 
-function UMAP_(graph::M, embedding::N, index::IndexType, n_neighbors, a, b) where {S<:Real, M<:AbstractMatrix{S}, N<:AbstractMatrix{S}, IndexType}
-    return UMAP_{S, M, N, IndexType}(graph, embedding, index, n_neighbors, a, b)
-end
 
 const SMOOTH_K_TOLERANCE = 1e-5
 
@@ -68,17 +67,22 @@ function UMAP_(
     n_components::Integer = 2;
     n_neighbors::Integer = 15,
     n_epochs::Integer = 300,
-    learning_rate::Real = 1,
+    learning_rate::Real = 1.0,
     init::Symbol = :spectral,
     min_dist::Real = 0.1f0,
-    spread::Real = 1,
-    set_operation_ratio::Real = 1,
+    spread::Real = 1f0,
+    set_operation_ratio::Real = 1f0,
     local_connectivity::Integer = 1,
-    repulsion_strength::Real = 1,
+    repulsion_strength::Float32 = 1f0,
     neg_sample_rate::Integer = 5,
     a = nothing,
-    b = nothing
+    b = nothing,
+    parallel = Threads.nthreads() > 1
 )
+    min_dist = convert(Float32, min_dist)
+    spread = convert(Float32, spread)
+    set_operation_ratio = convert(Float32, set_operation_ratio)
+    learning_rate = convert(Float32, learning_rate)
     index = data_or_index isa AbstractMatrix ? ExhaustiveSearch(; db=data_or_index, dist=SqEuclidean()) : data_or_index
     n = length(index)
     n > n_neighbors > 0 || throw(ArgumentError("the number of examples must be greater than n_neighbors and n_neighbors must be greater than 0"))
@@ -90,17 +94,15 @@ function UMAP_(
     min_dist > 0 || throw(ArgumentError("min_dist must be greater than 0"))
     0 ≤ set_operation_ratio ≤ 1 || throw(ArgumentError("set_operation_ratio must lie in [0, 1]"))
     local_connectivity > 0 || throw(ArgumentError("local_connectivity must be greater than 0"))
-    knns, dists = searchbatch(index, index.db, n_neighbors+1; parallel=true)
-    knns = @view knns[2:n_neighbors+1, :]  # ignoring the nearest neighbor (self reference)
-    dists = @view dists[2:n_neighbors+1, :]
+    knns, dists = allknn(index, n_neighbors; parallel)
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio)
     embedding = initialize_embedding(graph, n_components, Val(init))
     a, b = fit_ab(min_dist, spread, a, b)
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b, move_ref=true)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, move_ref=false)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
 
-    return UMAP_(graph, embedding, index, n_neighbors, a, b)
+    UMAP_(graph, embedding, index, n_neighbors, knns, dists, a, b)
 end
 
 """
@@ -112,8 +114,7 @@ n is the dimensionality of `model.embedding`. This embedding is created by findi
 and optimizing cross entropy according to membership strengths according to these neighbors.
 
 # Keyword Arguments
-- `n_neighbors::Integer = 15`: the number of neighbors to consider as locally connected. Larger v
-function smooth_knn_dists(knn_dists::AbstractMatrix{S},alues capture more global structure in the data, while small values capture more local structure.
+- `n_neighbors::Integer = 15`: the number of neighbors to consider as locally connected. Larger values capture more global structure in the data, while small values capture more local structure.
 - `metric::{SemiMetric, Symbol} = Euclidean()`: the metric to calculate distance in the input space. It is also possible to pass `metric = :precomputed` to treat `X` like a precomputed distance matrix.
 - `n_epochs::Integer = 300`: the number of training epochs for embedding optimization
 - `learning_rate::Real = 1`: the initial learning rate during optimization
@@ -130,14 +131,19 @@ function smooth_knn_dists(knn_dists::AbstractMatrix{S},alues capture more global
 function transform(model::UMAP_, Q;
                    n_neighbors = model.n_neighbors,
                    n_epochs::Integer = 100,
-                   learning_rate::Real = 1,
-                   set_operation_ratio::Real = 1,
+                   learning_rate::Real = 1.0,
+                   set_operation_ratio::Real = 1.0,
                    local_connectivity::Integer = 1,
-                   repulsion_strength::Real = 1,
+                   repulsion_strength::Real = 1.0,
                    neg_sample_rate::Integer = 5,
                    a = model.a,
-                   b = model.b
+                   b = model.b,
+                   parallel = Threads.nthreads() > 1
                    ) where {S<:Real}
+    
+    set_operation_ratio = convert(Float32, set_operation_ratio)
+    learning_rate = convert(Float32, learning_rate)
+    repulsion_strength = convert(Float32, repulsion_strength)
     Q = convert(AbstractDatabase, Q)
 
     # argument checking
@@ -151,11 +157,11 @@ function transform(model::UMAP_, Q;
     n_epochs = max(0, n_epochs)
     # main algorithm
     n = length(model.index)
-    knns, dists = searchbatch(model.index, Q, n_neighbors; parallel=true)
+    knns, dists = searchbatch(model.index, Q, n_neighbors; parallel)
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio, false)
 
     E = initialize_embedding(graph, model.embedding)
-    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b, move_ref=false)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, move_ref=false)
 end
 
 """
@@ -187,10 +193,9 @@ function fuzzy_simplicial_set(knns,
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
     if apply_fuzzy_combine
-        res = combine_fuzzy_sets(fs_set, set_operation_ratio)
-        return dropzeros(res)
+        dropzeros(combine_fuzzy_sets(fs_set, convert(eltype(fs_set), set_operation_ratio)))
     else
-        return dropzeros(fs_set)
+        dropzeros(fs_set)
     end
 end
 
@@ -226,7 +231,7 @@ function smooth_knn_dists(knn_dists::AbstractMatrix{S},
         elseif length(nz_dists) > 0
             ρs[i] = maximum(nz_dists)
         end
-        @inbounds σs[i] = smooth_knn_dist(knn_dists[:, i], ρs[i], k, bandwidth, niter)
+        @inbounds σs[i] = smooth_knn_dist(view(knn_dists, :, i), ρs[i], k, bandwidth, niter)
     end
 
     return ρs, σs
