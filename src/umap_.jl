@@ -101,9 +101,12 @@ function UMAP_(
     knns, dists = allknn(index, n_neighbors; parallel)
     println(stderr, "*** computing graph")
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio)
-    println(stderr, "*** computing embedding")
+    println(stderr, "*** init embedding")
     embedding = initialize_embedding(graph, n_components, Val(init))
+    println(stderr, "*** fit ab / embedding")
     a, b = fit_ab(min_dist, spread, a, b)
+    
+    println(stderr, "*** opt embedding")
     embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
