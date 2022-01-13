@@ -108,7 +108,7 @@
             old_ref_embedding = deepcopy(ref_embedding)
             query_embedding = rand(2, size(graph, 2))
             a, b = fit_ab(min_dist, spread)
-            res_embedding = optimize_embedding(graph, query_embedding, ref_embedding, n_epochs, initial_alpha, gamma, neg_sample_rate, a, b, move_ref=false)
+            res_embedding = optimize_embedding(graph, query_embedding, ref_embedding, n_epochs, initial_alpha, gamma, neg_sample_rate, a, b)
             @test res_embedding isa AbstractMatrix
             @test size(res_embedding) == size(query_embedding)
             @test isapprox(old_ref_embedding, ref_embedding, atol=1e-4)

@@ -61,6 +61,7 @@ The returned model has the following fields:
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
 - `a = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
 - `b = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
+- `parallel = Threads.nthreads() > 1`: controls parallelism of the methods (all-knn searches and embedding opt.)
 """
 function UMAP_(
     data_or_index,
@@ -89,17 +90,21 @@ function UMAP_(
     n > n_neighbors > 0 || throw(ArgumentError("the number of examples must be greater than n_neighbors and n_neighbors must be greater than 0"))
     n_components > 1 || throw(ArgumentError("n_components must be greater than 1"))
 
+    @show (n, n_neighbors, n_components)
     # argument checking
     n_epochs > 0 || throw(ArgumentError("n_epochs must be greater than 0"))
     learning_rate > 0 || throw(ArgumentError("learning_rate must be greater than 0"))
     min_dist > 0 || throw(ArgumentError("min_dist must be greater than 0"))
     0 ≤ set_operation_ratio ≤ 1 || throw(ArgumentError("set_operation_ratio must lie in [0, 1]"))
     local_connectivity > 0 || throw(ArgumentError("local_connectivity must be greater than 0"))
+    println(stderr, "*** computing allknn graph")
     knns, dists = allknn(index, n_neighbors; parallel)
+    println(stderr, "*** computing graph")
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio)
+    println(stderr, "*** computing embedding")
     embedding = initialize_embedding(graph, n_components, Val(init))
     a, b = fit_ab(min_dist, spread, a, b)
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, move_ref=false)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
 
@@ -126,7 +131,7 @@ function UMAP_(U::UMAP_, n_components::Integer;
 
     graph = U.graph
     embedding = initialize_embedding(graph, n_components, Val(init))
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, move_ref=false)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
 
@@ -189,7 +194,7 @@ function transform(model::UMAP_, Q;
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio, false)
 
     E = initialize_embedding(graph, model.embedding)
-    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, move_ref=false)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel)
 end
 
 """

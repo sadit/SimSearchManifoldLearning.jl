@@ -17,8 +17,9 @@ function initialize_embedding(graph::AbstractMatrix{T}, n_components, ::Val{:spe
 end
 
 function initialize_embedding(graph::AbstractMatrix{T}, n_components, ::Val{:random}) where {T}
-    m = rand(T, n_components, size(graph, 1))
-    m .= m .* 20 .- 10
+    #m = randn(T, n_components, size(graph, 1))
+    #m .= m .* 10 #.- 10
+    rand(T, n_components, size(graph, 1)) .* 20f0 .- 10f0
 end
 
 """
@@ -64,7 +65,7 @@ function spectral_layout(graph::SparseMatrixCSC{T},
 end
 
 """
-    optimize_embedding(graph, query_embedding_, ref_embedding_, n_epochs, alpha, min_dist, spread, gamma, neg_sample_rate, _a=nothing, _b=nothing; move_ref=false) -> embedding
+    optimize_embedding(graph, query_embedding_, ref_embedding_, n_epochs, alpha, min_dist, spread, gamma, neg_sample_rate, _a=nothing, _b=nothing; parallel=Bool) -> embedding
 
 Optimize an embedding by minimizing the fuzzy set cross entropy between the high and low dimensional simplicial sets using stochastic gradient descent.
 Optimize "query" samples with respect to "reference" samples.
@@ -81,7 +82,7 @@ Optimize "query" samples with respect to "reference" samples.
 - `_b`: this controls the embedding. If the actual argument is `nothing`, this is determined automatically by `min_dist` and `spread`.
 
 # Keyword Arguments
-- `move_ref::Bool = false`: if true, also improve the embeddings in `ref_embedding`, else fix them and only improve embeddings in `query_embedding`.
+- `parallel::Bool` indicates if the gd should be made in parallel
 """
 function optimize_embedding(graph,
                             query_embedding_::AbstractMatrix,
@@ -92,7 +93,6 @@ function optimize_embedding(graph,
                             neg_sample_rate::Int,
                             a::Float32,
                             b::Float32;
-                            move_ref::Bool=false,
                             parallel::Bool=false)
     self_reference = query_embedding_ === ref_embedding_
     query_embedding = MatrixDatabase(query_embedding_)
@@ -112,7 +112,7 @@ function optimize_embedding(graph,
                     rand() > p && continue
 
                     REj = ref_embedding[j]
-                    _gd_loop(QEi, REj, a, b, alpha, move_ref)
+                    _gd_loop(QEi, REj, a, b, alpha)
 
                     for _ in 1:neg_sample_rate
                         k = rand(eachindex(ref_embedding))
@@ -135,7 +135,7 @@ function optimize_embedding(graph,
                     j = GR[ind]
 
                     REj = ref_embedding[j]
-                    _gd_loop(QEi, REj, a, b, alpha, move_ref)
+                    _gd_loop(QEi, REj, a, b, alpha)
 
                     for _ in 1:neg_sample_rate
                         k = rand(eachindex(ref_embedding))
@@ -153,34 +153,22 @@ function optimize_embedding(graph,
     query_embedding_
 end
 
-@inline function _gd_loop(QEi, REj, a::Float32, b::Float32, alpha::Float32, move_ref::Bool)
+@inline function _gd_loop(QEi, REj, a::Float32, b::Float32, alpha::Float32)
     sdist = evaluate(SqEuclidean(), QEi, REj)
+    sdist < eps(Float32) && return
+    delta = (-2f0 * a * b * sdist^(b-1f0))/(1f0 + a * sdist^b)
 
-    delta = 0f0
-    if sdist > 0
-        delta = (-2f0 * a * b * sdist^(b-1f0))/(1f0 + a * sdist^b)
-    end
-    if move_ref
-        @inbounds @simd for d in eachindex(QEi)
-            grad = clamp(delta * (QEi[d] - REj[d]), -4f0, 4f0)
-            QEi[d] += alpha * grad
-            REj[d] -= alpha * grad
-        end
-    else
-        @inbounds @simd for d in eachindex(QEi)
-            grad = clamp(delta * (QEi[d] - REj[d]), -4f0, 4f0)
-            QEi[d] += alpha * grad
-        end
+    @inbounds @simd for d in eachindex(QEi)
+        grad = clamp(delta * (QEi[d] - REj[d]), -4f0, 4f0)
+        QEi[d] += alpha * grad
     end
 end
 
 @inline function _gd_neg_loop(QEi, REk, a::Float32, b::Float32, gamma::Float32, alpha::Float32)
     sdist = evaluate(SqEuclidean(), QEi, REk)
-    delta = 0f0
     if sdist > 0
         delta = (2f0 * gamma * b) / ((0.001f0 + sdist)*(1f0 + a * sdist^b))
-    end
-    if delta > 0
+
         @inbounds @simd for d in eachindex(QEi)
             grad = clamp(delta * (QEi[d] - REk[d]), -4f0, 4f0)
             QEi[d] += alpha * grad
