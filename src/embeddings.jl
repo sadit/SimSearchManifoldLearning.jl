@@ -94,7 +94,8 @@ function optimize_embedding(graph,
                             a::Float32,
                             b::Float32;
                             parallel::Bool=false)
-    self_reference = query_embedding_ === ref_embedding_
+    self_reference = query_embedding_ === ref_embedding_  # is it training mode?
+    self_reference && (query_embedding_ = copy(ref_embedding_))
     query_embedding = MatrixDatabase(query_embedding_)
     ref_embedding = MatrixDatabase(ref_embedding_)
     alpha_step = convert(Float32, alpha / n_epochs + eps(typeof(alpha)))
@@ -123,6 +124,10 @@ function optimize_embedding(graph,
                     end
                 end
             end
+            if self_reference # training -> update embedding
+                ref_embedding_ .= query_embedding_
+            end
+
             alpha -= alpha_step
         end
     else
@@ -146,6 +151,11 @@ function optimize_embedding(graph,
                     end
                 end
             end
+            
+            if self_reference # training -> update embedding
+                ref_embedding_ .= query_embedding_
+            end
+            
             alpha -= alpha_step
         end
     end
