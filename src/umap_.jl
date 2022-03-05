@@ -142,10 +142,10 @@ function UMAP_(U::UMAP_, n_components::Integer;
 end
 
 """
-    transform(model::UMAP_, Q::AbstractMatrix; <kwargs>) -> embedding
+    transform(model::UMAP_, Q; <kwargs>) -> embedding
 
-Use the given model to embed new points into an existing embedding. `Q` is a matrix of some number of points (columns)
-in the same space as `model.data`. The returned embedding is the embedding of these points in n-dimensional space, where
+Use the given model to embed new points into an existing embedding. `Q` is an AbstractDatabase object (from `SimilaritySearch`)
+The returned embedding is the embedding of these points in n-dimensional space, where
 n is the dimensionality of `model.embedding`. This embedding is created by finding neighbors of `Q` in `model.embedding`
 and optimizing cross entropy according to membership strengths according to these neighbors.
 
@@ -154,6 +154,7 @@ and optimizing cross entropy according to membership strengths according to thes
 - `metric::{SemiMetric, Symbol} = Euclidean()`: the metric to calculate distance in the input space. It is also possible to pass `metric = :precomputed` to treat `X` like a precomputed distance matrix.
 - `n_epochs::Integer = 300`: the number of training epochs for embedding optimization
 - `learning_rate::Real = 1`: the initial learning rate during optimization
+- `learning_rate_decay::Real = 0.8`: A decay factor for the `learning_rate` param (on each epoch)
 - `init::Symbol = :spectral`: how to initialize the output embedding; valid options are `:spectral` and `:random`
 - `min_dist::Real = 0.1`: the minimum spacing of points in the output embedding
 - `spread::Real = 1`: the effective scale of embedded points. Determines how clustered embedded points are in combination with `min_dist`.
@@ -166,8 +167,9 @@ and optimizing cross entropy according to membership strengths according to thes
 """
 function transform(model::UMAP_, Q;
                    n_neighbors = model.n_neighbors,
-                   n_epochs::Integer = 100,
+                   n_epochs::Integer = 3,
                    learning_rate::Real = 1.0,
+                   learning_rate_decay::Real = 0.8,
                    set_operation_ratio::Real = 1.0,
                    local_connectivity::Integer = 1,
                    repulsion_strength::Real = 1.0,
@@ -175,11 +177,12 @@ function transform(model::UMAP_, Q;
                    a = model.a,
                    b = model.b,
                    parallel = Threads.nthreads() > 1
-                   ) where {S<:Real}
+                   )
     
     set_operation_ratio = convert(Float32, set_operation_ratio)
     learning_rate = convert(Float32, learning_rate)
     repulsion_strength = convert(Float32, repulsion_strength)
+    learning_rate_decay = convert(Float32, learning_rate_decay)
     Q = convert(AbstractDatabase, Q)
 
     # argument checking
@@ -190,14 +193,14 @@ function transform(model::UMAP_, Q;
     length(model.index) == size(model.embedding, 2)  || throw(ArgumentError("model.index must have same number of columns as model.embedding"))
     #size(model.data, 1) == size(Q, 1)                || throw(ArgumentError("size(model.data, 1) must equal size(Q, 1)"))
     
-    n_epochs = max(0, n_epochs)
+    n_epochs = max(1, n_epochs)
     # main algorithm
     n = length(model.index)
     knns, dists = searchbatch(model.index, Q, n_neighbors; parallel)
     graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio, false)
 
     E = initialize_embedding(graph, model.embedding)
-    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay, parallel)
 end
 
 """
