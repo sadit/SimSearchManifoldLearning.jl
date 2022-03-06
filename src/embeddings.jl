@@ -104,7 +104,7 @@ function optimize_embedding(graph,
     NZ = nonzeros(graph)
 
     if parallel
-        for _ in 1:n_epochs
+        @time for _ in 1:n_epochs
             Threads.@threads for i in 1:size(graph, 2)
                 @inbounds QEi = query_embedding[i]
 
@@ -133,7 +133,7 @@ function optimize_embedding(graph,
             learning_rate *= learning_rate_decay
         end
     else
-        for _ in 1:n_epochs
+        @time for _ in 1:n_epochs
             @inbounds for i in 1:size(graph, 2)
                 QEi = query_embedding[i]
                 for ind in nzrange(graph, i)

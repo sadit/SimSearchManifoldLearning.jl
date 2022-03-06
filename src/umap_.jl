@@ -69,6 +69,7 @@ function UMAP_(
     n_neighbors::Integer = 15,
     n_epochs::Integer = 300,
     learning_rate::Real = 1f0,
+    learning_rate_decay::Real = 0.9f0,
     init::Symbol = :spectral,
     min_dist::Real = 0.1f0,
     spread::Real = 1f0,
@@ -84,6 +85,7 @@ function UMAP_(
     spread = convert(Float32, spread)
     set_operation_ratio = convert(Float32, set_operation_ratio)
     learning_rate = convert(Float32, learning_rate)
+    learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
     index = data_or_index isa AbstractMatrix ? ExhaustiveSearch(; db=data_or_index, dist=SqEuclidean()) : data_or_index
     n = length(index)
@@ -107,7 +109,7 @@ function UMAP_(
     a, b = fit_ab(min_dist, spread, a, b)
     
     println(stderr, "*** opt embedding")
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
 
@@ -122,6 +124,7 @@ Reuses a previously computed model with a different number of components
 function UMAP_(U::UMAP_, n_components::Integer;
         n_epochs=300,
         learning_rate::Real = 1f0,
+        learning_rate_decay::Real = 0.9f0,
         init::Symbol = :spectral,
         repulsion_strength::Float32 = 1f0,
         neg_sample_rate::Integer = 5,
@@ -130,11 +133,12 @@ function UMAP_(U::UMAP_, n_components::Integer;
         parallel = Threads.nthreads() > 1
     )
     learning_rate = convert(Float32, learning_rate)
+    learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
 
     graph = U.graph
     embedding = initialize_embedding(graph, n_components, Val(init))
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
 
@@ -166,7 +170,7 @@ and optimizing cross entropy according to membership strengths according to thes
 - `b = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
 """
 function transform(model::UMAP_, Q;
-                   n_neighbors = model.n_neighbors,
+                   n_neighbors::Integer = model.n_neighbors,
                    n_epochs::Integer = 3,
                    learning_rate::Real = 1.0,
                    learning_rate_decay::Real = 0.8,
@@ -196,10 +200,11 @@ function transform(model::UMAP_, Q;
     n_epochs = max(1, n_epochs)
     # main algorithm
     n = length(model.index)
-    knns, dists = searchbatch(model.index, Q, n_neighbors; parallel)
-    graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio, false)
-
-    E = initialize_embedding(graph, model.embedding)
+    println("===== inside transform")
+    @time knns, dists = searchbatch(model.index, Q, n_neighbors; parallel)
+    @time graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio, false)
+    @time E = initialize_embedding(graph, model.embedding)
+    println("==== optimizing")
     optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay, parallel)
 end
 
@@ -218,17 +223,15 @@ fuzzy sets of neighbors (default true).
 
 The returned graph will have size (`n_points`, size(knns, 2)).
 """
-function fuzzy_simplicial_set(knns,
-                              dists,
-                              n_neighbors,
-                              n_points,
-                              local_connectivity,
+function fuzzy_simplicial_set(knns::AbstractMatrix,
+                              dists::AbstractMatrix,
+                              n_neighbors::Integer,
+                              n_points::Integer,
+                              local_connectivity::Integer,
                               set_operation_ratio,
                               apply_fuzzy_combine=true)
-
-    σs, ρs = smooth_knn_dists(dists, n_neighbors, local_connectivity)
-
-    rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
+    @time σs, ρs = smooth_knn_dists(dists, n_neighbors, local_connectivity)
+    @time rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
     if apply_fuzzy_combine
@@ -245,60 +248,63 @@ Compute the distances to the nearest neighbors for a continuous value `k`. Retur
 the approximated distances to the kth nearest neighbor (`knn_dists`)
 and the nearest neighbor (nn_dists) from each point.
 """
-function smooth_knn_dists(knn_dists::AbstractMatrix{S},
-                          k::Real,
-                          local_connectivity::Real;
-                          niter::Integer=64,
-                          bandwidth::Real=1) where {S <: Real}
-
-    nonzero_dists(dists) = @view dists[dists .> 0.]
-    ρs = zeros(S, size(knn_dists, 2))
-    σs = Array{S}(undef, size(knn_dists, 2))
-    for i in 1:size(knn_dists, 2)
-        nz_dists = nonzero_dists(knn_dists[:, i])
-        if length(nz_dists) >= local_connectivity
-            index = floor(Int, local_connectivity)
-            interpolation = local_connectivity - index
-            if index > 0
-                ρs[i] = nz_dists[index]
-                if interpolation > SMOOTH_K_TOLERANCE
-                    ρs[i] += interpolation * (nz_dists[index+1] - nz_dists[index])
-                end
-            else
-                ρs[i] = interpolation * nz_dists[1]
-            end
-        elseif length(nz_dists) > 0
-            ρs[i] = maximum(nz_dists)
-        end
-        @inbounds σs[i] = smooth_knn_dist(view(knn_dists, :, i), ρs[i], k, bandwidth, niter)
+function smooth_knn_dists(dists::AbstractMatrix, k::Integer, local_connectivity::Integer; niter::Integer=64, bandwidth::Float32=1f0)
+    n = size(dists, 2)
+    ρs = zeros(Float32, n)
+    σs = Vector{Float32}(undef, n)
+    local_connectivity = max(1, min(k, local_connectivity))
+    Threads.@threads for i in 1:n
+        col = @view dists[:, i]
+        @inbounds ρs[i] = _find_first_non_zero(col, local_connectivity) #col[local_connectivity]
+        @inbounds σs[i] = smooth_knn_dist_(col, ρs[i], k, bandwidth, niter)
     end
 
-    return ρs, σs
+    ρs, σs
+end
+
+function _find_first_non_zero(v, sp)
+    @inbounds for i in sp:length(v)
+        v[i] != 0 && return v[i]
+    end
+    
+    v[1]
 end
 
 # calculate sigma for an individual point
-@fastmath function smooth_knn_dist(dists::AbstractVector, ρ, k, bandwidth, niter)
-    target = log2(k)*bandwidth
-    lo, mid, hi = 0., 1., Inf
+function smooth_knn_dist_kernel(dists, ρ, mid)
+    D::Float32 = 0.0
+    @fastmath @inbounds @simd for d in dists
+        d = d - ρ
+        D += d > 0 ? exp(-d / mid) : 1f0
+    end
+
+    D
+end
+
+@fastmath function smooth_knn_dist_(dists::AbstractVector, ρ, k, bandwidth, niter)
+    target = bandwidth * log2(k)
+    lo::Float32 = 0
+    mid::Float32 = 1
+    hi::Float32 = Inf32
+
     for n in 1:niter
-        psum = sum(exp.(-max.(dists .- ρ, 0.)./mid))
-        if abs(psum - target) < SMOOTH_K_TOLERANCE
-            break
-        end
+        psum = smooth_knn_dist_kernel(dists, ρ, mid)
+        abs(psum - target) < SMOOTH_K_TOLERANCE && break
         if psum > target
             hi = mid
-            mid = (lo + hi)/2.
+            mid = (lo + hi) / 2f0
         else
             lo = mid
             if hi == Inf
                 mid *= 2.
             else
-                mid = (lo + hi) / 2.
+                mid = (lo + hi) / 2f0
             end
         end
     end
+
     # TODO: set according to min k dist scale
-    return mid
+    mid
 end
 
 """
@@ -306,23 +312,26 @@ end
 
 Compute the membership strengths for the 1-skeleton of each fuzzy simplicial set.
 """
-function compute_membership_strengths(knns::AbstractMatrix{S},
-                                      dists::AbstractMatrix{T},
-                                      ρs::Vector{T},
-                                      σs::Vector{T}) where {S <: Integer, T}
+function compute_membership_strengths(knns::AbstractMatrix,
+                                      dists::AbstractMatrix,
+                                      ρs::Vector,
+                                      σs::Vector)
     # set dists[i, j]
-    rows = sizehint!(S[], length(knns))
-    cols = sizehint!(S[], length(knns))
-    vals = sizehint!(T[], length(knns))
+    n = length(knns)
+    rows = sizehint!(Int32[], n)
+    cols = sizehint!(Int32[], n)
+    vals = sizehint!(Float32[], n)
     for i in 1:size(knns, 2), j in 1:size(knns, 1)
         @inbounds if i == knns[j, i] # dist to self
             d = 0.
+            # THIS CONDITION NEVER HAPPENS IN SimilaritySearch
         else
             @inbounds d = exp(-max(dists[j, i] - ρs[i], 0.)/σs[i])
         end
-        append!(cols, i)
-        append!(rows, knns[j, i])
-        append!(vals, d)
+        push!(cols, i)
+        push!(rows, knns[j, i])
+        push!(vals, d)
     end
-    return rows, cols, vals
+    
+    rows, cols, vals
 end
