@@ -16,10 +16,10 @@ function initialize_embedding(graph::AbstractMatrix{T}, n_components, ::Val{:spe
     embed
 end
 
-function initialize_embedding(graph::AbstractMatrix{T}, n_components, ::Val{:random}) where {T}
+function initialize_embedding(graph::AbstractMatrix, n_components, ::Val{:random})
     #m = randn(T, n_components, size(graph, 1))
     #m .= m .* 10 #.- 10
-    rand(T, n_components, size(graph, 1)) .* 20f0 .- 10f0
+    rand(-10f0:eps(Float32):10f0, n_components, size(graph, 1)) #.* 20f0 .- 10f0
 end
 
 """
@@ -99,7 +99,7 @@ function optimize_embedding(graph,
     ref_embedding = MatrixDatabase(ref_embedding_)
     #learning_rate_step = convert(Float32, learning_rate / n_epochs + eps(typeof(learning_rate)))
     GR = rowvals(graph)
-    NZ = nonzeros(graph)
+    # NZ = nonzeros(graph)
 
     if parallel
         @time for _ in 1:n_epochs
@@ -108,7 +108,7 @@ function optimize_embedding(graph,
 
                 @inbounds for ind in nzrange(graph, i)
                     j = GR[ind]
-                    p = NZ[ind]
+                    #p = NZ[ind]
                     # rand() > p && continue
 
                     REj = ref_embedding[j]
@@ -135,7 +135,7 @@ function optimize_embedding(graph,
             @inbounds for i in 1:size(graph, 2)
                 QEi = query_embedding[i]
                 for ind in nzrange(graph, i)
-                    p = NZ[ind]
+                    #p = NZ[ind]
                     # rand() > p && continue
                     j = GR[ind]
 

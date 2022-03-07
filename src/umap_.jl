@@ -102,7 +102,7 @@ function UMAP_(
     println(stderr, "*** computing allknn graph")
     knns, dists = allknn(index, n_neighbors; parallel)
     println(stderr, "*** computing graph")
-    graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio)
+    graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio)
     println(stderr, "*** init embedding")
     embedding = initialize_embedding(graph, n_components, Val(init))
     println(stderr, "*** fit ab / embedding")
@@ -202,14 +202,14 @@ function transform(model::UMAP_, Q;
     n = length(model.index)
     println("===== inside transform")
     @time knns, dists = searchbatch(model.index, Q, n_neighbors; parallel)
-    @time graph = fuzzy_simplicial_set(knns, dists, n_neighbors, n, local_connectivity, set_operation_ratio, false)
+    @time graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false)
     @time E = initialize_embedding(graph, model.embedding)
     println("==== optimizing")
     optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay, parallel)
 end
 
 """
-    fuzzy_simplicial_set(knns, dists, n_neighbors, n_points, local_connectivity, set_op_ratio, apply_fuzzy_combine=true) -> membership_graph::SparseMatrixCSC, 
+    fuzzy_simplicial_set(knns, dists,  n_points, local_connectivity, set_op_ratio, apply_fuzzy_combine=true) -> membership_graph::SparseMatrixCSC, 
 
 Construct the local fuzzy simplicial sets of each point represented by its distances
 to its `n_neighbors` nearest neighbors, stored in `knns` and `dists`, normalizing the distances
@@ -225,18 +225,18 @@ The returned graph will have size (`n_points`, size(knns, 2)).
 """
 function fuzzy_simplicial_set(knns::AbstractMatrix,
                               dists::AbstractMatrix,
-                              n_neighbors::Integer,
                               n_points::Integer,
-                              local_connectivity::Integer,
+                              local_connectivity,
                               set_operation_ratio,
                               apply_fuzzy_combine=true)
     # @time σs, ρs = smooth_knn_dists(dists, n_neighbors, local_connectivity)
     # @time rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
-    @time rows, cols, vals = compute_membership_strengths(knns, dists, n_neighbors, local_connectivity)
+    @time rows, cols, vals = compute_membership_strengths(knns, dists, local_connectivity)
+    # transform uses n_points != size(knns, 2)
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
     if apply_fuzzy_combine
-        dropzeros!(combine_fuzzy_sets(fs_set, convert(eltype(fs_set), set_operation_ratio)))
+        dropzeros!(combine_fuzzy_sets(fs_set, convert(Float32, set_operation_ratio)))
     else
         dropzeros!(fs_set)
     end
@@ -285,10 +285,10 @@ end
 # calculate sigma for an individual point
 function smooth_knn_dist_kernel(dists, ρ, mid)
     D::Float32 = 0.0
-    invmid = 1f0/mid
+    invmid = -1f0/mid
     @fastmath @inbounds @simd for d in dists
         d = d - ρ
-        D += d > 0 ? exp(-d * invmid) : 1f0
+        D += d > 0 ? exp(d * invmid) : 1f0
     end
 
     D
@@ -321,11 +321,11 @@ end
 end
 
 """
-    compute_membership_strengths(knns, dists, n_neighbors, local_connectivity) -> rows, cols, vals
+    compute_membership_strengths(knns, dists, local_connectivity) -> rows, cols, vals
 
 Compute the membership strengths for the 1-skeleton of each fuzzy simplicial set.
 """
-function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, n_neighbors, local_connectivity)
+function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, local_connectivity)
     n = length(knns)
     rows = Vector{Int32}(undef, n)
     cols = Vector{Int32}(undef, n)
@@ -342,8 +342,8 @@ function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatri
             d = exp(-max(D[k] - ρ, 0f0) * invσ)
             iii = ii + k
             cols[iii] = i
-            vals[iii] = d
             rows[iii] = knns[k, i]
+            vals[iii] = d
         end
     end
     
