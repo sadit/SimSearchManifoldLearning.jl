@@ -230,8 +230,9 @@ function fuzzy_simplicial_set(knns::AbstractMatrix,
                               local_connectivity::Integer,
                               set_operation_ratio,
                               apply_fuzzy_combine=true)
-    @time σs, ρs = smooth_knn_dists(dists, n_neighbors, local_connectivity)
-    @time rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
+    # @time σs, ρs = smooth_knn_dists(dists, n_neighbors, local_connectivity)
+    # @time rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
+    @time rows, cols, vals = compute_membership_strengths(knns, dists, n_neighbors, local_connectivity)
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
     if apply_fuzzy_combine
@@ -248,6 +249,7 @@ Compute the distances to the nearest neighbors for a continuous value `k`. Retur
 the approximated distances to the kth nearest neighbor (`knn_dists`)
 and the nearest neighbor (nn_dists) from each point.
 """
+#=
 function smooth_knn_dists(dists::AbstractMatrix, k::Integer, local_connectivity::Integer; niter::Integer=64, bandwidth::Float32=1f0)
     n = size(dists, 2)
     ρs = zeros(Float32, n)
@@ -262,6 +264,16 @@ function smooth_knn_dists(dists::AbstractMatrix, k::Integer, local_connectivity:
     ρs, σs
 end
 
+=#
+function smooth_knn_dists_vector(col::AbstractVector, k::Integer, local_connectivity::Integer; niter::Integer=64, bandwidth::Float32=1f0)
+    local_connectivity = max(1, min(k, local_connectivity))
+    ρ = _find_first_non_zero(col, local_connectivity) #col[local_connectivity]
+    σ = smooth_knn_dist_opt_binsearch(col, ρ, k, bandwidth, niter)
+    ρ, σ
+end
+
+# check if this is necessary with SimilaritySearch, maybe just adding eps for near duplicates, d(u,v) = 0, is enough.
+# also check tests
 function _find_first_non_zero(v, sp)
     @inbounds for i in sp:length(v)
         v[i] != 0 && return v[i]
@@ -273,21 +285,22 @@ end
 # calculate sigma for an individual point
 function smooth_knn_dist_kernel(dists, ρ, mid)
     D::Float32 = 0.0
+    invmid = 1f0/mid
     @fastmath @inbounds @simd for d in dists
         d = d - ρ
-        D += d > 0 ? exp(-d / mid) : 1f0
+        D += d > 0 ? exp(-d * invmid) : 1f0
     end
 
     D
 end
 
-@fastmath function smooth_knn_dist_(dists::AbstractVector, ρ, k, bandwidth, niter)
+@fastmath function smooth_knn_dist_opt_binsearch(dists::AbstractVector, ρ, k, bandwidth, niter)
     target = bandwidth * log2(k)
     lo::Float32 = 0
     mid::Float32 = 1
     hi::Float32 = Inf32
 
-    for n in 1:niter
+    for _ in 1:niter
         psum = smooth_knn_dist_kernel(dists, ρ, mid)
         abs(psum - target) < SMOOTH_K_TOLERANCE && break
         if psum > target
@@ -308,29 +321,28 @@ end
 end
 
 """
-    compute_membership_strengths(knns, dists, σs, ρs) -> rows, cols, vals
+    compute_membership_strengths(knns, dists, n_neighbors, local_connectivity) -> rows, cols, vals
 
 Compute the membership strengths for the 1-skeleton of each fuzzy simplicial set.
 """
-function compute_membership_strengths(knns::AbstractMatrix,
-                                      dists::AbstractMatrix,
-                                      ρs::Vector,
-                                      σs::Vector)
-    # set dists[i, j]
+function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, n_neighbors, local_connectivity)
     n = length(knns)
     rows = sizehint!(Int32[], n)
     cols = sizehint!(Int32[], n)
     vals = sizehint!(Float32[], n)
-    for i in 1:size(knns, 2), j in 1:size(knns, 1)
-        @inbounds if i == knns[j, i] # dist to self
-            d = 0.
-            # THIS CONDITION NEVER HAPPENS WITH SimilaritySearch
-        else
-            @inbounds d = exp(-max(dists[j, i] - ρs[i], 0.)/σs[i])
+    n_neighbors, n = size(knns) # WARN n is now different
+
+    Threads.@nthreads for i in 1:n
+        D = @view dists[:, i]
+        ρ, σ = smooth_knn_dists_vector(D, n_neighbors, local_connectivity)
+        invσ = 1f0 / σ
+        @inbounds for k in 1:n_neighbors
+            # if i == knns[j, i] # THIS CONDITION NEVER HAPPENS WITH SimilaritySearch
+            d = exp(-max(D[k] - ρ, 0.) * invσ)  
+            push!(cols, i)
+            push!(rows, knns[k, i])
+            push!(vals, d)
         end
-        push!(cols, i)
-        push!(rows, knns[j, i])
-        push!(vals, d)
     end
     
     rows, cols, vals

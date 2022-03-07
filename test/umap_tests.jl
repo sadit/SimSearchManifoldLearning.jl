@@ -46,6 +46,7 @@
         @test size(umap_graph) == (200, 3)
     end
 
+    #=
     @testset "smooth_knn_dists" begin
         dists = [0., 1., 2., 3., 4., 5.]
         rho = 1
@@ -53,7 +54,7 @@
         local_connectivity = 1
         bandwidth = 1.
         niter = 64
-        sigma = smooth_knn_dist_(dists, rho, k, bandwidth, niter)
+        sigma = smooth_knn_dist_opt_binsearch(dists, rho, k, bandwidth, niter)
         psum(ds, r, s) = sum(exp.(-max.(ds .- r, 0.) ./ s))
         @test psum(dists, rho, sigma) - log2(k)*bandwidth < SMOOTH_K_TOLERANCE
 
@@ -63,6 +64,7 @@
                      3. 4. 5.;
                      4. 6. 6.;
                      5. 6. 10.]
+        
         rhos, sigmas = smooth_knn_dists(knn_dists, k, local_connectivity)
         @show rhos, sigmas
         @test rhos == [1., 2., 3.]
@@ -78,7 +80,7 @@
         # this implementation only supports integer local_connectivity
         #rhos, sigmas = smooth_knn_dists(knn_dists, 2, 1.5)
         #@test rhos == [0., 1.5, 2.5]
-    end
+    end 
     
     @testset "compute_membership_strengths" begin
         knns = [1 2 3; 2 1 2]
@@ -93,7 +95,7 @@
         @test cols == true_cols
         @test vals == true_vals
     end
-
+=#
     @testset "optimize_embedding" begin
         graph1 = sparse(Symmetric(sprand(6,6,0.4)))
         graph2 = sparse(sprand(5,3,0.4))
