@@ -327,21 +327,23 @@ Compute the membership strengths for the 1-skeleton of each fuzzy simplicial set
 """
 function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, n_neighbors, local_connectivity)
     n = length(knns)
-    rows = sizehint!(Int32[], n)
-    cols = sizehint!(Int32[], n)
-    vals = sizehint!(Float32[], n)
+    rows = Vector{Int32}(undef, n)
+    cols = Vector{Int32}(undef, n)
+    vals = Vector{Float32}(undef, n)
     n_neighbors, n = size(knns) # WARN n is now different
 
     Threads.@threads for i in 1:n
         D = @view dists[:, i]
         ρ, σ = smooth_knn_dists_vector(D, n_neighbors, local_connectivity)
         invσ = 1f0 / σ
+        ii = (i-1) * n_neighbors
         @inbounds for k in 1:n_neighbors
             # if i == knns[j, i] # THIS CONDITION NEVER HAPPENS WITH SimilaritySearch
-            d = exp(-max(D[k] - ρ, 0.) * invσ)  
-            push!(cols, i)
-            push!(rows, knns[k, i])
-            push!(vals, d)
+            d = exp(-max(D[k] - ρ, 0f0) * invσ)
+            iii = ii + k
+            cols[iii] = i
+            vals[iii] = d
+            rows[iii] = knns[k, i]
         end
     end
     
