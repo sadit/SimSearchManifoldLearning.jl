@@ -235,9 +235,9 @@ function fuzzy_simplicial_set(knns::AbstractMatrix,
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
     if apply_fuzzy_combine
-        dropzeros(combine_fuzzy_sets(fs_set, convert(eltype(fs_set), set_operation_ratio)))
+        dropzeros!(combine_fuzzy_sets(fs_set, convert(eltype(fs_set), set_operation_ratio)))
     else
-        dropzeros(fs_set)
+        dropzeros!(fs_set)
     end
 end
 
@@ -292,13 +292,13 @@ end
         abs(psum - target) < SMOOTH_K_TOLERANCE && break
         if psum > target
             hi = mid
-            mid = (lo + hi) / 2f0
+            mid = (lo + hi) * 0.5f0
         else
             lo = mid
-            if hi == Inf
-                mid *= 2.
+            if hi === Inf32
+                mid += mid
             else
-                mid = (lo + hi) / 2f0
+                mid = (lo + hi) * 0.5f0
             end
         end
     end
@@ -324,7 +324,7 @@ function compute_membership_strengths(knns::AbstractMatrix,
     for i in 1:size(knns, 2), j in 1:size(knns, 1)
         @inbounds if i == knns[j, i] # dist to self
             d = 0.
-            # THIS CONDITION NEVER HAPPENS IN SimilaritySearch
+            # THIS CONDITION NEVER HAPPENS WITH SimilaritySearch
         else
             @inbounds d = exp(-max(dists[j, i] - ρs[i], 0.)/σs[i])
         end

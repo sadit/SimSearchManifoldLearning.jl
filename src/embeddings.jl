@@ -23,7 +23,7 @@ function initialize_embedding(graph::AbstractMatrix{T}, n_components, ::Val{:ran
 end
 
 """
-    initialize_embedding(graph::AbstractMatrix{<:Real}, ref_embedding::AbstractMatrix{T<:AbstractFloat}) -> embedding
+    initialize_embedding(graph::AbstractMatrix, ref_embedding::Matrix) -> embedding
 
 Initialize an embedding of points corresponding to the columns of the `graph`, by taking weighted means of
 the columns of `ref_embedding`, where weights are values from the rows of the `graph`.
@@ -32,10 +32,8 @@ The resulting embedding will have shape `(size(ref_embedding, 1), size(graph, 2)
 is the number of components (dimensions) of the `reference embedding`, and `size(graph, 2)` is the number of 
 samples in the resulting embedding. Its elements will have type T.
 """
-function initialize_embedding(graph::AbstractMatrix{<:Real}, ref_embedding::AbstractMatrix{T})::Matrix{T} where {T<:AbstractFloat}
-    #embed = 
-    (ref_embedding * graph) ./ (sum(graph, dims=1) .+ eps(T))
-    #return Vector{T}[eachcol(embed)...]
+function initialize_embedding(graph::AbstractMatrix, ref_embedding::Matrix{Float32})
+    (ref_embedding * graph) ./ (sum(graph, dims=1) .+ eps(Float32))
 end
 
 """
@@ -111,7 +109,7 @@ function optimize_embedding(graph,
                 @inbounds for ind in nzrange(graph, i)
                     j = GR[ind]
                     p = NZ[ind]
-                    rand() > p && continue
+                    # rand() > p && continue
 
                     REj = ref_embedding[j]
                     _gd_loop(QEi, REj, a, b, learning_rate)
@@ -138,7 +136,7 @@ function optimize_embedding(graph,
                 QEi = query_embedding[i]
                 for ind in nzrange(graph, i)
                     p = NZ[ind]
-                    rand() > p && continue
+                    # rand() > p && continue
                     j = GR[ind]
 
                     REj = ref_embedding[j]

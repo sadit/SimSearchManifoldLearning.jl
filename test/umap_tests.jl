@@ -129,27 +129,28 @@
     end
 
     @testset "initialize_embedding" begin
-        graph = [5 0 1 1;
-                 2 4 1 1;
-                 3 6 8 8] ./10
-        ref_embedding = Float64[1 2 0;
+        graph = Float32[5 0 1 1;
+                        2 4 1 1;
+                        3 6 8 8] ./10
+        ref_embedding = Float32[1 2 0;
                                 0 2 -1]
         #actual = [[9, 1], [8, 2], [3, -6], [3, -6]] ./10
-        actual = [9  8  3  3;
-                  1  2 -6 -6] ./ 10
-        embedding = initialize_embedding(graph, ref_embedding)
-        @test embedding isa AbstractMatrix{Float64}
-        @test isapprox(embedding, actual, atol=1e-8)
+        actual = Float32[9  8  3  3;
+                         1  2 -6 -6] ./ 10
+        embedding = initialize_embedding(graph, ref_embedding) 
+        @info typeof(graph) => typeof(embedding)
+        @test embedding isa AbstractMatrix{Float32}
+        @test isapprox(embedding, actual, atol=1e-6)
 
-        graph = Float16.(graph[:, [1,2]])
+        graph = Float32.(graph[:, [1,2]])
         graph[:, end] .= 0
-        ref_embedding = Float16[1 2 0;
+        ref_embedding = Float32[1 2 0;
                                 0 2 -1]
         #actual = Vector{Float16}[[9, 1], [0, 0]] ./10
         actual = [9 0;
                   1 0] ./ 10
         embedding = initialize_embedding(graph, ref_embedding)
-        @test embedding isa AbstractMatrix{Float16}
+        @test embedding isa AbstractMatrix{Float32}
         @test isapprox(embedding, actual, atol=1e-2)
     end
 
