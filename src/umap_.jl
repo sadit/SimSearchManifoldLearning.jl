@@ -122,7 +122,7 @@ end
 Reuses a previously computed model with a different number of components
 """
 function UMAP_(U::UMAP_, n_components::Integer;
-        n_epochs=300,
+        n_epochs=100,
         learning_rate::Real = 1f0,
         learning_rate_decay::Real = 0.9f0,
         init::Symbol = :spectral,
@@ -156,7 +156,7 @@ and optimizing cross entropy according to membership strengths according to thes
 # Keyword Arguments
 - `n_neighbors::Integer = 15`: the number of neighbors to consider as locally connected. Larger values capture more global structure in the data, while small values capture more local structure.
 - `metric::{SemiMetric, Symbol} = Euclidean()`: the metric to calculate distance in the input space. It is also possible to pass `metric = :precomputed` to treat `X` like a precomputed distance matrix.
-- `n_epochs::Integer = 300`: the number of training epochs for embedding optimization
+- `n_epochs::Integer = 30`: the number of training epochs for embedding optimization
 - `learning_rate::Real = 1`: the initial learning rate during optimization
 - `learning_rate_decay::Real = 0.8`: A decay factor for the `learning_rate` param (on each epoch)
 - `init::Symbol = :spectral`: how to initialize the output embedding; valid options are `:spectral` and `:random`
@@ -171,7 +171,7 @@ and optimizing cross entropy according to membership strengths according to thes
 """
 function transform(model::UMAP_, Q;
                    n_neighbors::Integer = model.n_neighbors,
-                   n_epochs::Integer = 3,
+                   n_epochs::Integer = 30,
                    learning_rate::Real = 1.0,
                    learning_rate_decay::Real = 0.8,
                    set_operation_ratio::Real = 1.0,
@@ -249,22 +249,6 @@ Compute the distances to the nearest neighbors for a continuous value `k`. Retur
 the approximated distances to the kth nearest neighbor (`knn_dists`)
 and the nearest neighbor (nn_dists) from each point.
 """
-#=
-function smooth_knn_dists(dists::AbstractMatrix, k::Integer, local_connectivity::Integer; niter::Integer=64, bandwidth::Float32=1f0)
-    n = size(dists, 2)
-    ρs = zeros(Float32, n)
-    σs = Vector{Float32}(undef, n)
-    local_connectivity = max(1, min(k, local_connectivity))
-    Threads.@threads for i in 1:n
-        col = @view dists[:, i]
-        @inbounds ρs[i] = _find_first_non_zero(col, local_connectivity) #col[local_connectivity]
-        @inbounds σs[i] = smooth_knn_dist_(col, ρs[i], k, bandwidth, niter)
-    end
-
-    ρs, σs
-end
-
-=#
 function smooth_knn_dists_vector(col::AbstractVector, k::Integer, local_connectivity::Integer; niter::Integer=64, bandwidth::Float32=1f0)
     local_connectivity = max(1, min(k, local_connectivity))
     ρ = _find_first_non_zero(col, local_connectivity) #col[local_connectivity]
@@ -335,11 +319,12 @@ function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatri
     Threads.@threads for i in 1:n
         D = @view dists[:, i]
         ρ, σ = smooth_knn_dists_vector(D, n_neighbors, local_connectivity)
-        invσ = 1f0 / σ
+        invσ = -1f0 / σ
         ii = (i-1) * n_neighbors
         @inbounds for k in 1:n_neighbors
             # if i == knns[j, i] # THIS CONDITION NEVER HAPPENS WITH SimilaritySearch
-            d = exp(-max(D[k] - ρ, 0f0) * invσ)
+            d = D[k] - ρ
+            d = d > 0 ? exp(d * invσ) : 1f0
             iii = ii + k
             cols[iii] = i
             rows[iii] = knns[k, i]
