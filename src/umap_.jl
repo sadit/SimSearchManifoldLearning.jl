@@ -332,7 +332,7 @@ function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatri
     vals = sizehint!(Float32[], n)
     n_neighbors, n = size(knns) # WARN n is now different
 
-    Threads.@nthreads for i in 1:n
+    Threads.@threads for i in 1:n
         D = @view dists[:, i]
         ρ, σ = smooth_knn_dists_vector(D, n_neighbors, local_connectivity)
         invσ = 1f0 / σ
