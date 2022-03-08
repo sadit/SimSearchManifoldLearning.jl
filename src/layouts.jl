@@ -1,6 +1,6 @@
 abstract type AbstractLayout end
 
-export SpectralLayout, RandomLayout, PrecomputedLayout, KnnGraphComponents
+export SpectralLayout, RandomLayout, PrecomputedLayout, KnnGraphComponentsLayout
 
 """
     SpectralLayout <: AbstractLayout
@@ -26,12 +26,12 @@ struct PrecomputedLayout <: AbstractLayout
 end
 
 """
-    KnnGraphComponents <: AbstractLayout
+    KnnGraphComponentsLayout <: AbstractLayout
 
 
 A lattice like + cloulds of points initialization that uses the computed all-knn graph
 """
-struct KnnGraphComponents <: AbstractLayout
+struct KnnGraphComponentsLayout <: AbstractLayout
 end
 
 function initialize_embedding(::RandomLayout, graph::AbstractMatrix, knns, dists, n_components)
@@ -93,13 +93,15 @@ function spectral_layout(graph::SparseMatrixCSC{T},
     return convert.(T, layout)
 end
 
-function initialize_embedding(layout::KnnGraphComponents, graph::AbstractMatrix, knns, dists, n_components)
+function initialize_embedding(::KnnGraphComponentsLayout, graph::AbstractMatrix, knns, dists, n_components)
     n = size(knns, 2)
     embed = zeros(Float32, n_components, n)
     E = MatrixDatabase(embed)
     L = MatrixDatabase(knns)
     C = zeros(Int32, n)
 
+    ## the method is quite fast and doesn't require multithreading for medium sized datasets; very large datasets may
+    ## see some improvement but perhaps an external implementation is better
     for i in 1:n
         # C[i] != 0 && continue  ## multithreading
         prev = i
