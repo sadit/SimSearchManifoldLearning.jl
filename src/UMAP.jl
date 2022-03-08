@@ -8,6 +8,8 @@ using SimilaritySearch
 using SparseArrays
 
 include("utils.jl")
+include("precomputedknns.jl")
+include("layouts.jl")
 include("embeddings.jl")
 include("umap_.jl")
 

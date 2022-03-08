@@ -52,7 +52,7 @@ The returned model has the following fields:
 - `metric::{SemiMetric, Symbol} = Euclidean()`: the metric to calculate distance in the input space. It is also possible to pass `metric = :precomputed` to treat `X` like a precomputed distance matrix.
 - `n_epochs::Integer = 300`: the number of training epochs for embedding optimization
 - `learning_rate::Real = 1`: the initial learning rate during optimization
-- `init::Symbol = :spectral`: how to initialize the output embedding; valid options are `:spectral` and `:random`
+- `layout::AbstractLayout = SpectralLayout()`: how to initialize the output embedding
 - `min_dist::Real = 0.1`: the minimum spacing of points in the output embedding
 - `spread::Real = 1`: the effective scale of embedded points. Determines how clustered embedded points are in combination with `min_dist`.
 - `set_operation_ratio::Real = 1`: interpolates between fuzzy set union and fuzzy set intersection when constructing the UMAP graph (global fuzzy simplicial set). The value of this parameter should be between 1.0 and 0.0: 1.0 indicates pure fuzzy union, while 0.0 indicates pure fuzzy intersection.
@@ -70,7 +70,7 @@ function UMAP_(
     n_epochs::Integer = 300,
     learning_rate::Real = 1f0,
     learning_rate_decay::Real = 0.9f0,
-    init::Symbol = :spectral,
+    layout::AbstractLayout = SpectralLayout(),
     min_dist::Real = 0.1f0,
     spread::Real = 1f0,
     set_operation_ratio::Real = 1f0,
@@ -103,8 +103,8 @@ function UMAP_(
     knns, dists = allknn(index, n_neighbors; parallel)
     println(stderr, "*** computing graph")
     graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio)
-    println(stderr, "*** init embedding")
-    embedding = initialize_embedding(graph, n_components, Val(init))
+    println(stderr, "*** layout embedding")
+    embedding = initialize_embedding(layout, graph, n_components)
     println(stderr, "*** fit ab / embedding")
     a, b = fit_ab(min_dist, spread, a, b)
     
@@ -125,7 +125,7 @@ function UMAP_(U::UMAP_, n_components::Integer;
         n_epochs=100,
         learning_rate::Real = 1f0,
         learning_rate_decay::Real = 0.9f0,
-        init::Symbol = :spectral,
+        layout::AbstractLayout = SpectralLayout(),
         repulsion_strength::Float32 = 1f0,
         neg_sample_rate::Integer = 5,
         a = U.a,
@@ -137,10 +137,10 @@ function UMAP_(U::UMAP_, n_components::Integer;
     repulsion_strength = convert(Float32, repulsion_strength)
 
     graph = U.graph
-    embedding = initialize_embedding(graph, n_components, Val(init))
+    embedding = initialize_embedding(layout, graph, n_components)
     embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
-    #       in the same manner and do a fuzzy simpl set intersection
+    #       in the same manner and do a fuzzy simplicial set intersection
 
     UMAP_(graph, embedding, U.index, U.n_neighbors, U.knns, U.dists, a, b)
 end
@@ -159,7 +159,7 @@ and optimizing cross entropy according to membership strengths according to thes
 - `n_epochs::Integer = 30`: the number of training epochs for embedding optimization
 - `learning_rate::Real = 1`: the initial learning rate during optimization
 - `learning_rate_decay::Real = 0.8`: A decay factor for the `learning_rate` param (on each epoch)
-- `init::Symbol = :spectral`: how to initialize the output embedding; valid options are `:spectral` and `:random`
+- `layout::AbstractLayout = SpectralLayout()`: how to initialize the output embedding
 - `min_dist::Real = 0.1`: the minimum spacing of points in the output embedding
 - `spread::Real = 1`: the effective scale of embedded points. Determines how clustered embedded points are in combination with `min_dist`.
 - `set_operation_ratio::Real = 1`: interpolates between fuzzy set union and fuzzy set intersection when constructing the UMAP graph (global fuzzy simplicial set). The value of this parameter should be between 1.0 and 0.0: 1.0 indicates pure fuzzy union, while 0.0 indicates pure fuzzy intersection.

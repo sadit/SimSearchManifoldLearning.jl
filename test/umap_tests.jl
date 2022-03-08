@@ -11,17 +11,17 @@
     end
 
     @testset "input type stability tests" begin
-        umap_ = UMAP_(rand(5, 100); init=:random)
+        umap_ = UMAP_(rand(5, 100); init=RandomLayout())
         @test eltype(umap_.graph) == Float32  ## input Float64 -> output Float32 (SimilaritySearch distances are Float32 and the embedding takes distances as input)
         @test size(umap_.graph) == (100, 100)
         @test size(umap_.embedding) == (2, 100)
         ## @test umap_.data === data
-        @test UMAP_(rand(Float32, 5, 100); init=:random).graph isa AbstractMatrix{Float32}
+        @test UMAP_(rand(Float32, 5, 100); init=RandomLayout()).graph isa AbstractMatrix{Float32}
     end
 
     @testset "reusing umap" begin
-        umap1 = UMAP_(rand(5, 100), 2; init=:random)
-        umap2 = UMAP_(umap1, 3; init=:random)
+        umap1 = UMAP_(rand(5, 100), 2; init=RandomLayout())
+        umap2 = UMAP_(umap1, 3; init=RandomLayout())
         @test size(umap1.embedding) == (2, 100)
         @test size(umap2.embedding) == (3, 100)
     end
@@ -141,7 +141,7 @@
 
     @testset "spectral_layout" begin
         A = sprand(10000, 10000, 0.001)
-        B = dropzeros(A + A' - A .* A')
+        B = dropzeros!(A + A' - A .* A')
         layout = spectral_layout(B, 5)
         @test layout isa Array{Float64, 2}
         @inferred spectral_layout(B, 5)
