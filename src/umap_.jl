@@ -67,7 +67,7 @@ function UMAP_(
     data_or_index,
     n_components::Integer = 2;
     n_neighbors::Integer = 15,
-    n_epochs::Integer = 300,
+    n_epochs::Integer = 50,
     learning_rate::Real = 1f0,
     learning_rate_decay::Real = 0.9f0,
     layout::AbstractLayout = SpectralLayout(),
@@ -103,8 +103,8 @@ function UMAP_(
     knns, dists = allknn(index, n_neighbors; parallel)
     println(stderr, "*** computing graph")
     graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio)
-    println(stderr, "*** layout embedding")
-    embedding = initialize_embedding(layout, graph, n_components)
+    println(stderr, "*** layout embedding $(typeof(layout))")
+    embedding = initialize_embedding(layout, graph, knns, dists, n_components)
     println(stderr, "*** fit ab / embedding")
     a, b = fit_ab(min_dist, spread, a, b)
     
@@ -122,7 +122,7 @@ end
 Reuses a previously computed model with a different number of components
 """
 function UMAP_(U::UMAP_, n_components::Integer;
-        n_epochs=100,
+        n_epochs=50,
         learning_rate::Real = 1f0,
         learning_rate_decay::Real = 0.9f0,
         layout::AbstractLayout = SpectralLayout(),
@@ -137,7 +137,7 @@ function UMAP_(U::UMAP_, n_components::Integer;
     repulsion_strength = convert(Float32, repulsion_strength)
 
     graph = U.graph
-    embedding = initialize_embedding(layout, graph, n_components)
+    embedding = initialize_embedding(layout, graph, U.knns, U.dists, n_components)
     embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simplicial set intersection

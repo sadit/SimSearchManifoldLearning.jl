@@ -1,23 +1,55 @@
 abstract type AbstractLayout end
 
-export SpectralLayout, RandomLayout, PrecomputedLayout
+export SpectralLayout, RandomLayout, PrecomputedLayout, KnnGraphComponents
 
+"""
+    SpectralLayout <: AbstractLayout
+
+Initializes the embedding using the spectral layout method. It could be costly in very large datasets.
+"""
 struct SpectralLayout <: AbstractLayout end
+
+"""
+    RandomLayout <: AbstractLayout
+
+Initializes the embedding using a random set of points. It may converge slowly
+"""
 struct RandomLayout <: AbstractLayout end
+
+"""
+    PrecomputedLayout <: AbstractLayout
+
+Initializes the embedding using a previously computed layout, i.e., (n_components, n_points) matrix. 
+"""
 struct PrecomputedLayout <: AbstractLayout
     init::Matrix{Float32}
 end
 
-function initialize_embedding(layout::PrecomputedLayout, graph::AbstractMatrix, n_components)
-    k, n = size(layout.init)
-    if n_components !=  k || n != size(graph, 2)
-        error("PrecomputedLayout matrix ($k, $n) doesn't matches ($n_components, $(size(graph, 2)))")
-    end
+"""
+    KnnGraphComponents <: AbstractLayout
 
-    PrecomputedLayout.init
+
+A lattice like + cloulds of points initialization that uses the computed all-knn graph
+"""
+struct KnnGraphComponents <: AbstractLayout
 end
 
-function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, n_components) where {T}
+function initialize_embedding(::RandomLayout, graph::AbstractMatrix, knns, dists, n_components)
+    n = size(knns, 2)
+    rand(-10f0:eps(Float32):10f0, n_components, n)
+end
+
+function initialize_embedding(layout::PrecomputedLayout, graph::AbstractMatrix, knns, dists, n_components)
+    k, n = size(layout.init)
+    n_ = size(knns, 2)
+    if n_components !=  k || n != n_
+        error("PrecomputedLayout matrix ($k, $n) doesn't matches ($n_components, $(n_))")
+    end
+
+    layout.init
+end
+
+function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, knns, dists, n_components) where {T}
     local embed
 
     try
@@ -29,7 +61,7 @@ function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, n_comp
         embed .+= r
     catch e
         @info "$e\nError encountered in spectral_layout; defaulting to random layout"
-        embed = initialize_embedding(RandomLayout(), graph, n_components)
+        embed = initialize_embedding(RandomLayout(), graph, knns, dists)
     end
 
     embed
@@ -61,9 +93,47 @@ function spectral_layout(graph::SparseMatrixCSC{T},
     return convert.(T, layout)
 end
 
-function initialize_embedding(::RandomLayout, graph::AbstractMatrix, n_components)
-    randn(-10f0:eps(Float32):10f0, n_components, size(graph, 1))
+function initialize_embedding(layout::KnnGraphComponents, graph::AbstractMatrix, knns, dists, n_components)
+    n = size(knns, 2)
+    embed = zeros(Float32, n_components, n)
+    E = MatrixDatabase(embed)
+    L = MatrixDatabase(knns)
+    C = zeros(Int32, n)
+
+    for i in 1:n
+        # C[i] != 0 && continue  ## multithreading
+        prev = i
+        links = L[i]
+        while (curr = minimum(links); prev > curr)
+            links = L[curr]
+            prev = curr
+        end
+
+        #  C[prev] == 0 && rand_point_lattice_(E[i]) ## multithreading + also needs locks
+        C[i] = prev
+        if i == prev
+            rand_point_lattice_(E[i])
+        else
+            rand_point_cloud_(E[i], E[prev], 0.25f0)
+        end
+    end
+
+    embed
 end
+
+function rand_point_lattice_(V)
+    @inbounds for i in eachindex(V)
+        V[i] = rand(-10f0:0.5f0:10f0)
+    end
+end
+
+function rand_point_cloud_(V, center, min_dist::Float32)
+    size(V), size(center), min_dist
+    @inbounds for i in eachindex(V)
+        V[i] = center[i] + rand(-min_dist:eps(Float32):min_dist)
+    end
+end
+
 
 """
     initialize_embedding(graph::AbstractMatrix, ref_embedding::Matrix) -> embedding

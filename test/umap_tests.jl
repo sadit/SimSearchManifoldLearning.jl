@@ -1,6 +1,5 @@
 
 @testset "umap tests" begin
-    #=
     @testset "constructor" begin
         @testset "argument validation tests" begin
             @test_throws ArgumentError UMAP_([1. 1.]; n_neighbors=0) # n_neighbors error
@@ -11,17 +10,24 @@
     end
 
     @testset "input type stability tests" begin
-        umap_ = UMAP_(rand(5, 100); init=RandomLayout())
+        umap_ = UMAP_(rand(5, 100); layout=RandomLayout())
         @test eltype(umap_.graph) == Float32  ## input Float64 -> output Float32 (SimilaritySearch distances are Float32 and the embedding takes distances as input)
         @test size(umap_.graph) == (100, 100)
         @test size(umap_.embedding) == (2, 100)
         ## @test umap_.data === data
-        @test UMAP_(rand(Float32, 5, 100); init=RandomLayout()).graph isa AbstractMatrix{Float32}
+        @test UMAP_(rand(Float32, 5, 100); layout=RandomLayout()).graph isa AbstractMatrix{Float32}
+    end
+
+    @testset "layouts" begin
+        umap_ = UMAP_(rand(5, 100); layout=RandomLayout())
+        umap_ = UMAP_(rand(5, 100); layout=SpectralLayout())
+        umap_ = UMAP_(rand(5, 100); layout=PrecomputedLayout(rand(2, 100)))
+        umap_ = UMAP_(rand(5, 100); layout=KnnGraphComponents())
     end
 
     @testset "reusing umap" begin
-        umap1 = UMAP_(rand(5, 100), 2; init=RandomLayout())
-        umap2 = UMAP_(umap1, 3; init=RandomLayout())
+        umap1 = UMAP_(rand(5, 100), 2; layout=RandomLayout())
+        umap2 = UMAP_(umap1, 3; layout=RandomLayout())
         @test size(umap1.embedding) == (2, 100)
         @test size(umap2.embedding) == (3, 100)
     end
@@ -46,7 +52,6 @@
         @test all(0. .<= umap_graph .<= 1.)
         @test size(umap_graph) == (200, 3)
     end
-    =#
     
     @testset "smooth_knn_dists" begin
         dists = [0., 1., 2., 3., 4., 5.]
