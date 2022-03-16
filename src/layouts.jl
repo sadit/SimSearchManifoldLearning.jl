@@ -1,6 +1,6 @@
 abstract type AbstractLayout end
 
-export SpectralLayout, RandomLayout, PrecomputedLayout, KnnGraphComponentsLayout
+export SpectralLayout, RandomLayout, PrecomputedLayout, KnnGraphLayout
 
 """
     SpectralLayout <: AbstractLayout
@@ -26,20 +26,20 @@ struct PrecomputedLayout <: AbstractLayout
 end
 
 """
-    KnnGraphComponentsLayout <: AbstractLayout
+    KnnGraphLayout <: AbstractLayout
 
 
-A lattice like + cloulds of points initialization that uses the computed all-knn graph
+A lattice like + clouds of points initialization that uses the computed all-knn graph
 """
-struct KnnGraphComponentsLayout <: AbstractLayout
+struct KnnGraphLayout <: AbstractLayout
 end
 
-function initialize_embedding(::RandomLayout, graph::AbstractMatrix, knns, dists, n_components)
+function initialize_embedding(::RandomLayout, graph::AbstractMatrix, knns, dists, n_components::Integer)
     n = size(knns, 2)
     rand(-10f0:eps(Float32):10f0, n_components, n)
 end
 
-function initialize_embedding(layout::PrecomputedLayout, graph::AbstractMatrix, knns, dists, n_components)
+function initialize_embedding(layout::PrecomputedLayout, graph::AbstractMatrix, knns, dists, n_components::Integer)
     k, n = size(layout.init)
     n_ = size(knns, 2)
     if n_components !=  k || n != n_
@@ -49,7 +49,7 @@ function initialize_embedding(layout::PrecomputedLayout, graph::AbstractMatrix, 
     layout.init
 end
 
-function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, knns, dists, n_components) where {T}
+function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, knns, dists, n_components::Integer) where {T}
     local embed
 
     try
@@ -61,7 +61,7 @@ function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, knns, 
         embed .+= r
     catch e
         @info "$e\nError encountered in spectral_layout; defaulting to random layout"
-        embed = initialize_embedding(RandomLayout(), graph, knns, dists)
+        embed = initialize_embedding(RandomLayout(), graph, knns, dists, n_components)
     end
 
     embed
@@ -93,33 +93,57 @@ function spectral_layout(graph::SparseMatrixCSC{T},
     return convert.(T, layout)
 end
 
-function initialize_embedding(::KnnGraphComponentsLayout, graph::AbstractMatrix, knns, dists, n_components)
+function revknn_frequencies_(knns)
     n = size(knns, 2)
-    embed = zeros(Float32, n_components, n)
-    E = MatrixDatabase(embed)
-    L = MatrixDatabase(knns)
-    C = zeros(Int32, n)
-
-    ## the method is quite fast and doesn't require multithreading for medium sized datasets; very large datasets may
-    ## see some improvement but perhaps an external implementation is better
+    F = zeros(Int32, n)
     for i in 1:n
-        # C[i] != 0 && continue  ## multithreading
-        prev = i
-        links = L[i]
-        while (curr = minimum(links); prev > curr)
-            links = L[curr]
-            prev = curr
-        end
-
-        #  C[prev] == 0 && rand_point_lattice_(E[i]) ## multithreading + also needs locks
-        C[i] = prev
-        if i == prev
-            rand_point_lattice_(E[i])
-        else
-            rand_point_cloud_(E[i], E[prev], 0.25f0)
+        for objID in view(knns, :, i)
+            F[objID] += 1  # appoximation to indegree centrality
         end
     end
 
+    F
+end
+
+function knn_fast_components_(knns)  ## approximated connected components
+    C = Dict{Int32,Vector{Int32}}()
+    for i in 1:size(knns, 2)
+        prev = i
+        links = @view knns[:, i]
+
+        while (curr = minimum(links); prev > curr)
+            links = @view knns[:, curr]
+            prev = curr
+        end
+
+        lst = get(C, prev, nothing)
+        if lst === nothing
+            C[prev] = Int32[i]
+        else
+            push!(lst, i)
+        end
+    end
+
+    C
+end
+
+function initialize_embedding(::KnnGraphLayout, graph::AbstractMatrix, knns, dists, n_components::Integer)
+    n = size(knns, 2)
+    embed = zeros(Float32, n_components, n)
+    E = MatrixDatabase(embed)
+    C = knn_fast_components_(knns)
+    F = revknn_frequencies_(knns)
+
+    for lst in values(C)
+        i, _ = findmax(i -> F[i], lst)
+        rand_point_lattice_(E[i])  # most popular elements are in the center
+        for p in lst
+            if p != i
+                rand_point_cloud_(E[p], E[i], 0.25f0)
+            end
+        end
+    end
+    
     embed
 end
 
@@ -130,7 +154,6 @@ function rand_point_lattice_(V)
 end
 
 function rand_point_cloud_(V, center, min_dist::Float32)
-    size(V), size(center), min_dist
     @inbounds for i in eachindex(V)
         V[i] = center[i] + rand(-min_dist:eps(Float32):min_dist)
     end

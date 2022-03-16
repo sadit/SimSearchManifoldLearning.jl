@@ -22,7 +22,7 @@
         umap_ = UMAP_(rand(5, 100); layout=RandomLayout())
         umap_ = UMAP_(rand(5, 100); layout=SpectralLayout())
         umap_ = UMAP_(rand(5, 100); layout=PrecomputedLayout(rand(2, 100)))
-        umap_ = UMAP_(rand(5, 100); layout=KnnGraphComponentsLayout())
+        umap_ = UMAP_(randn(5, 100); layout=KnnGraphLayout())
     end
 
     @testset "reusing umap" begin

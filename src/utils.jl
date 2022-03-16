@@ -20,7 +20,7 @@ function fit_ab(min_dist, spread, ::Nothing, ::Nothing)::Tuple{Float32,Float32}
     @. curve(x, p) = (1. + p[1]*x^(2*p[2]))^(-1)
     result = curve_fit(curve, xs, ys, [1., 1.], lower=[0., -Inf])
     a, b = result.param
-    return a, b
+    a, b
 end
 
 
@@ -32,7 +32,7 @@ end
 end
 
 @inline function fuzzy_set_union(fs_set::AbstractMatrix)
-    return fs_set .+ fs_set' .- (fs_set .* fs_set')
+    return fs_set .+ fs_set' .- fuzzy_set_intersection(fs_set)
 end
 
 @inline function fuzzy_set_intersection(fs_set::AbstractMatrix)
