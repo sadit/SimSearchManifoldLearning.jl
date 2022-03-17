@@ -100,19 +100,25 @@ function UMAP_(
     0 ≤ set_operation_ratio ≤ 1 || throw(ArgumentError("set_operation_ratio must lie in [0, 1]"))
     local_connectivity > 0 || throw(ArgumentError("local_connectivity must be greater than 0"))
     println(stderr, "*** computing allknn graph")
-    knns, dists = allknn(index, n_neighbors; parallel)
+    timeallknn = @elapsed knns, dists = allknn(index, n_neighbors; parallel)
     println(stderr, "*** computing graph")
-    graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio)
+    timegraph = @elapsed graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio)
     println(stderr, "*** layout embedding $(typeof(layout))")
-    embedding = initialize_embedding(layout, graph, knns, dists, n_components)
+    timeinit = @elapsed embedding = initialize_embedding(layout, graph, knns, dists, n_components)
     println(stderr, "*** fit ab / embedding")
-    a, b = fit_ab(min_dist, spread, a, b)
-    
+    a, b = fit_ab(min_dist, spread, a, b)    
     println(stderr, "*** opt embedding")
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, learning_rate_decay)
+    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
-
+    println(stderr,
+    """
+UMAP construction time cost report:
+- allknn: $timeallknn
+- fuzzy graph: $timegraph
+- embedding init: $timeinit
+- embedding opt: $timeopt
+""")
     UMAP_(graph, embedding, index, n_neighbors, knns, dists, a, b)
 end
 
@@ -201,9 +207,9 @@ function transform(model::UMAP_, Q;
     # main algorithm
     n = length(model.index)
     println("===== inside transform")
-    @time knns, dists = searchbatch(model.index, Q, n_neighbors; parallel)
-    @time graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false)
-    @time E = initialize_embedding(graph, model.embedding)
+    knns, dists = searchbatch(model.index, Q, n_neighbors; parallel)
+    graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false)
+    E = initialize_embedding(graph, model.embedding)
     println("==== optimizing")
     optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay, parallel)
 end
@@ -231,7 +237,7 @@ function fuzzy_simplicial_set(knns::AbstractMatrix,
                               apply_fuzzy_combine=true)
     # @time σs, ρs = smooth_knn_dists(dists, n_neighbors, local_connectivity)
     # @time rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
-    @time rows, cols, vals = compute_membership_strengths(knns, dists, local_connectivity)
+    rows, cols, vals = compute_membership_strengths(knns, dists, local_connectivity)
     # transform uses n_points != size(knns, 2)
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
