@@ -135,7 +135,8 @@ function initialize_embedding(::KnnGraphLayout, graph::AbstractMatrix, knns, dis
     F = revknn_frequencies_(knns)
 
     for lst in values(C)
-        i, _ = findmax(i -> F[i], lst)
+        _, p = findmax(p -> F[p], lst)
+        i = lst[p]
         rand_point_lattice_(E[i])  # most popular elements are in the center
         for p in lst
             if p != i
