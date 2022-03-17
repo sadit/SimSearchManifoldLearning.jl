@@ -4,7 +4,7 @@
     optimize_embedding(graph, query_embedding_, ref_embedding_, n_epochs, alpha, min_dist, spread, repulsion_strength, neg_sample_rate, _a=nothing, _b=nothing; parallel=Bool) -> embedding
 
 Optimize an embedding by minimizing the fuzzy set cross entropy between the high and low dimensional simplicial sets using stochastic gradient descent.
-Optimize "query" samples with respect to "reference" samples.
+Optimize "query" samples with respect to "reference" samples. The optimization uses all available threads.
 
 # Arguments
 - `graph`: a sparse matrix of shape (n_samples, n_samples)
@@ -17,8 +17,6 @@ Optimize "query" samples with respect to "reference" samples.
 - `_a`: this controls the embedding. If the actual argument is `nothing`, this is determined automatically by `min_dist` and `spread`.
 - `_b`: this controls the embedding. If the actual argument is `nothing`, this is determined automatically by `min_dist` and `spread`.
 
-# Keyword Arguments
-- `parallel::Bool` indicates if the gd should be made in parallel
 """
 function optimize_embedding(graph,
                             query_embedding_::AbstractMatrix,
@@ -29,8 +27,7 @@ function optimize_embedding(graph,
                             neg_sample_rate::Int,
                             a::Float32,
                             b::Float32;
-                            learning_rate_decay::Float32=0.9f0,
-                            parallel::Bool=false)
+                            learning_rate_decay::Float32=0.9f0)
     self_reference = query_embedding_ === ref_embedding_  # is it training mode?
     self_reference && (query_embedding_ = copy(ref_embedding_))
     query_embedding = MatrixDatabase(query_embedding_)
@@ -39,64 +36,28 @@ function optimize_embedding(graph,
     GR = rowvals(graph)
     # NZ = nonzeros(graph)
 
-    if parallel
-        @time for _ in 1:n_epochs
-            Threads.@threads for i in 1:size(graph, 2)
-                @inbounds QEi = query_embedding[i]
+    @time for _ in 1:n_epochs
+        Threads.@threads for i in 1:size(graph, 2)
+            @inbounds QEi = query_embedding[i]
 
-                @inbounds for ind in nzrange(graph, i)
-                    j = GR[ind]
-                    #p = NZ[ind]
-                    # rand() > p && continue
+            @inbounds for ind in nzrange(graph, i)
+                j = GR[ind]
+                REj = ref_embedding[j]
+                _gd_loop(QEi, REj, a, b, learning_rate)
 
-                    REj = ref_embedding[j]
-                    _gd_loop(QEi, REj, a, b, learning_rate)
-
-                    for _ in 1:neg_sample_rate
-                        k = rand(eachindex(ref_embedding))
-                        if i == k && self_reference
-                            continue
-                        end
-                        _gd_neg_loop(QEi, ref_embedding[k], a, b, repulsion_strength, learning_rate)
-                    end
+                for _ in 1:neg_sample_rate
+                    k = rand(eachindex(ref_embedding))
+                    i == k && self_reference && continue
+                    _gd_neg_loop(QEi, ref_embedding[k], a, b, repulsion_strength, learning_rate)
                 end
             end
-            if self_reference # training -> update embedding
-                ref_embedding_ .= query_embedding_
-            end
-
-            #learning_rate -= learning_rate_step
-            learning_rate *= learning_rate_decay
         end
-    else
-        @time for _ in 1:n_epochs
-            @inbounds for i in 1:size(graph, 2)
-                QEi = query_embedding[i]
-                for ind in nzrange(graph, i)
-                    #p = NZ[ind]
-                    # rand() > p && continue
-                    j = GR[ind]
 
-                    REj = ref_embedding[j]
-                    _gd_loop(QEi, REj, a, b, learning_rate)
-
-                    for _ in 1:neg_sample_rate
-                        k = rand(eachindex(ref_embedding))
-                        if i == k && self_reference
-                            continue
-                        end
-                        _gd_neg_loop(QEi, ref_embedding[k], a, b, repulsion_strength, learning_rate)
-                    end
-                end
-            end
-            
-            if self_reference # training -> update embedding
-                ref_embedding_ .= query_embedding_
-            end
-            
-            #learning_rate -= learning_rate_step
-            learning_rate *= learning_rate_decay
+        if self_reference # training -> update embedding
+            ref_embedding_ .= query_embedding_
         end
+
+        learning_rate = max(learning_rate * learning_rate_decay, 1f-6)
     end
 
     query_embedding_

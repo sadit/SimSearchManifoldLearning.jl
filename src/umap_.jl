@@ -47,6 +47,8 @@ The returned model has the following fields:
 - `dists`: the respective distances of the above neighbors.
            `dists[j, i]` is the distance of point i's jth nearest neighbor.
 
+It uses all available threads for the projection.
+
 # Keyword Arguments
 - `n_neighbors::Integer = 15`: the number of neighbors to consider as locally connected. Larger values capture more global structure in the data, while small values capture more local structure.
 - `metric::{SemiMetric, Symbol} = Euclidean()`: the metric to calculate distance in the input space. It is also possible to pass `metric = :precomputed` to treat `X` like a precomputed distance matrix.
@@ -61,7 +63,7 @@ The returned model has the following fields:
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
 - `a = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
 - `b = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
-- `parallel = Threads.nthreads() > 1`: controls parallelism of the methods (all-knn searches and embedding opt.)
+
 """
 function UMAP_(
     data_or_index,
@@ -78,8 +80,7 @@ function UMAP_(
     repulsion_strength::Float32 = 1f0,
     neg_sample_rate::Integer = 5,
     a = nothing,
-    b = nothing,
-    parallel = Threads.nthreads() > 1
+    b = nothing
 )
     min_dist = convert(Float32, min_dist)
     spread = convert(Float32, spread)
@@ -100,7 +101,7 @@ function UMAP_(
     0 ≤ set_operation_ratio ≤ 1 || throw(ArgumentError("set_operation_ratio must lie in [0, 1]"))
     local_connectivity > 0 || throw(ArgumentError("local_connectivity must be greater than 0"))
     println(stderr, "*** computing allknn graph")
-    timeallknn = @elapsed knns, dists = allknn(index, n_neighbors; parallel)
+    timeallknn = @elapsed knns, dists = allknn(index, n_neighbors; parallel=Threads.nthreads() > 1)
     println(stderr, "*** computing graph")
     timegraph = @elapsed graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio)
     println(stderr, "*** layout embedding $(typeof(layout))")
@@ -108,7 +109,7 @@ function UMAP_(
     println(stderr, "*** fit ab / embedding")
     a, b = fit_ab(min_dist, spread, a, b)    
     println(stderr, "*** opt embedding")
-    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, learning_rate_decay)
+    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
     println(stderr,
@@ -135,16 +136,16 @@ function UMAP_(U::UMAP_, n_components::Integer;
         repulsion_strength::Float32 = 1f0,
         neg_sample_rate::Integer = 5,
         a = U.a,
-        b = U.b,
-        parallel = Threads.nthreads() > 1
+        b = U.b
     )
+    
     learning_rate = convert(Float32, learning_rate)
     learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
 
     graph = U.graph
     embedding = initialize_embedding(layout, graph, U.knns, U.dists, n_components)
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; parallel, learning_rate_decay)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simplicial set intersection
 
@@ -185,9 +186,8 @@ function transform(model::UMAP_, Q;
                    repulsion_strength::Real = 1.0,
                    neg_sample_rate::Integer = 5,
                    a = model.a,
-                   b = model.b,
-                   parallel = Threads.nthreads() > 1
-                   )
+                   b = model.b
+    )
     
     set_operation_ratio = convert(Float32, set_operation_ratio)
     learning_rate = convert(Float32, learning_rate)
@@ -207,11 +207,11 @@ function transform(model::UMAP_, Q;
     # main algorithm
     n = length(model.index)
     println("===== inside transform")
-    knns, dists = searchbatch(model.index, Q, n_neighbors; parallel)
+    knns, dists = searchbatch(model.index, Q, n_neighbors; parallel=Threads.nthreads() > 1)
     graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false)
     E = initialize_embedding(graph, model.embedding)
     println("==== optimizing")
-    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay, parallel)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay)
 end
 
 """
