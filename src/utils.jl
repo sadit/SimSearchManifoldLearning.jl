@@ -17,7 +17,7 @@ function fit_ab(min_dist, spread, ::Nothing, ::Nothing)::Tuple{Float32,Float32}
     ψ(d) = d >= min_dist ? exp(-(d - min_dist)/spread) : 1.
     xs = LinRange(0., spread*3, 300)
     ys = map(ψ, xs)
-    @. curve(x, p) = (1. + p[1]*x^(2*p[2]))^(-1)
+    @. curve(x, p) = 1/(1 + p[1]*x^(2*p[2]))
     result = curve_fit(curve, xs, ys, [1., 1.], lower=[0., -Inf])
     a, b = result.param
     a, b
@@ -27,12 +27,13 @@ end
 # combine local fuzzy simplicial sets
 @inline function combine_fuzzy_sets(fs_set::AbstractMatrix,
                                     set_op_ratio::Float32)
-    return set_op_ratio .* fuzzy_set_union(fs_set) .+
-           (1f0 - set_op_ratio) .* fuzzy_set_intersection(fs_set)
+    fsint = fuzzy_set_intersection(fs_set)
+    return set_op_ratio .* fuzzy_set_union(fs_set, fsint) .+
+           (1f0 - set_op_ratio) .* fsint
 end
 
-@inline function fuzzy_set_union(fs_set::AbstractMatrix)
-    return fs_set .+ fs_set' .- fuzzy_set_intersection(fs_set)
+@inline function fuzzy_set_union(fs_set::AbstractMatrix, fsint=fuzzy_set_intersection(fs_set))
+    return fs_set .+ fs_set' .- fsint
 end
 
 @inline function fuzzy_set_intersection(fs_set::AbstractMatrix)
