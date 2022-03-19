@@ -15,10 +15,9 @@ This package also provides a pure Julia implementation of the [Uniform Manifold 
 > McInnes, L, Healy, J, Melville, J, *UMAP: Uniform Manifold Approximation and Projection for
 > Dimension Reduction*. ArXiV 1802.03426, 2018
 
-This implementation is based on the [UMAP.jl](https://github.com/dillondaudert/UMAP.jl) package by Dillon Gene Daudert and collaborators.
+The implementation in this package is based on the [UMAP.jl](https://github.com/dillondaudert/UMAP.jl) package by Dillon Gene Daudert and collaborators. Forked and adapted to work with `SimilaritySearch` and take advantage of multithreading systems.
 
-The provided implementation partially supports the `ManifoldLearning` API using `fit` and `predict` and similar arguments.
-It can use any distance function from `SimilaritySearch`, [Distances.jl](https://github.com/JuliaStats/Distances.jl), [StringDistances.jl](https://github.com/matthieugomez/StringDistances.jl), or any distance function implemented by the user.
+The provided implementation partially supports the `ManifoldLearning` API using `fit` and `predict` and similar arguments. It can use any distance function from `SimilaritySearch`, [Distances.jl](https://github.com/JuliaStats/Distances.jl), [StringDistances.jl](https://github.com/matthieugomez/StringDistances.jl), or any distance function implemented by the user.
 
 Additionally,  it improves multithreading support in the KNN and the UMAP projection.
 
