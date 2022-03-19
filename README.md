@@ -10,20 +10,20 @@ algorithm
 
 ## Usage
 ```jl
-embedding = umap(X, n_components; n_neighbors, metric, min_dist, ...)
+embedding = umap(X, maxoutdim; n_neighbors, metric, min_dist, ...)
 ```
-The `umap` function takes two arguments, `X` (a column-major matrix of shape (n_features, n_samples)), `n_components` (the number of dimensions in the output embedding), and various keyword arguments. Several important ones are:
+The `umap` function takes two arguments, `X` (a column-major matrix of shape (n_features, n_samples)), `maxoutdim` (the number of dimensions in the output embedding), and various keyword arguments. Several important ones are:
 - `n_neighbors::Int=15`: This controls how many neighbors around each point are considered to be part of its local neighborhood. Larger values will result in embeddings that capture more global structure, while smaller values will preserve more local structures.
 - `metric::SemiMetric=Euclidean()`: The (semi)metric to use when calculating distances between points. This can be any subtype of the `SemiMetric` type from the `Distances.jl` package, including user-defined types.
 - `min_dist::Float=0.1`: This controls the minimum spacing of points in the embedding. Larger values will cause points to be more evenly distributed, while smaller values will preserve more local structure.
 
-The returned `embedding` will be a matrix of shape (n_components, n_samples).
+The returned `embedding` will be a matrix of shape (maxoutdim, n_samples).
 
 ### Using precomputed distances
 UMAP can use a precomputed distance matrix instead of finding the nearest neighbors itself. In this case, the distance matrix is passed as `X` and the `metric` keyword argument should be `:precomputed`. Example:
 
 ```jl
-embedding = umap(distances, n_components; metric=:precomputed)
+embedding = umap(distances, maxoutdim; metric=:precomputed)
 ```
 
 ## Fitting a UMAP model to a dataset and transforming new data
@@ -31,7 +31,7 @@ embedding = umap(distances, n_components; metric=:precomputed)
 ### Constructing a model
 To construct a model to use for embedding new data, use the constructor:
 ```jl
-model = UMAP_(X, n_components; <kwargs>)
+model = UMAP_(X, maxoutdim; <kwargs>)
 ```
 where the constructor takes the same keyword arguments (kwargs) as `umap`. The returned object has the following fields:
 ```jl

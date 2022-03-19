@@ -19,7 +19,7 @@ struct RandomLayout <: AbstractLayout end
 """
     PrecomputedLayout <: AbstractLayout
 
-Initializes the embedding using a previously computed layout, i.e., (n_components, n_points) matrix. 
+Initializes the embedding using a previously computed layout, i.e., (maxoutdim, n_points) matrix. 
 """
 struct PrecomputedLayout <: AbstractLayout
     init::Matrix{Float32}
@@ -34,26 +34,26 @@ A lattice like + clouds of points initialization that uses the computed all-knn 
 struct KnnGraphLayout <: AbstractLayout
 end
 
-function initialize_embedding(::RandomLayout, graph::AbstractMatrix, knns, dists, n_components::Integer)
+function initialize_embedding(::RandomLayout, graph::AbstractMatrix, knns, dists, maxoutdim::Integer)
     n = size(knns, 2)
-    rand(-10f0:eps(Float32):10f0, n_components, n)
+    rand(-10f0:eps(Float32):10f0, maxoutdim, n)
 end
 
-function initialize_embedding(layout::PrecomputedLayout, graph::AbstractMatrix, knns, dists, n_components::Integer)
+function initialize_embedding(layout::PrecomputedLayout, graph::AbstractMatrix, knns, dists, maxoutdim::Integer)
     k, n = size(layout.init)
     n_ = size(knns, 2)
-    if n_components !=  k || n != n_
-        error("PrecomputedLayout matrix ($k, $n) doesn't matches ($n_components, $(n_))")
+    if maxoutdim !=  k || n != n_
+        error("PrecomputedLayout matrix ($k, $n) doesn't matches ($maxoutdim, $(n_))")
     end
 
     layout.init
 end
 
-function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, knns, dists, n_components::Integer) where {T}
+function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, knns, dists, maxoutdim::Integer) where {T}
     local embed
 
     try
-        embed = spectral_layout(graph, n_components)
+        embed = spectral_layout(graph, maxoutdim)
         r = randn(T, size(embed))
         r .*= 0.0001
         # expand
@@ -61,7 +61,7 @@ function initialize_embedding(::SpectralLayout, graph::AbstractMatrix{T}, knns, 
         embed .+= r
     catch e
         @info "$e\nError encountered in spectral_layout; defaulting to random layout"
-        embed = initialize_embedding(RandomLayout(), graph, knns, dists, n_components)
+        embed = initialize_embedding(RandomLayout(), graph, knns, dists, maxoutdim)
     end
 
     embed
@@ -127,9 +127,9 @@ function knn_fast_components_(knns)  ## approximated connected components
     C
 end
 
-function initialize_embedding(::KnnGraphLayout, graph::AbstractMatrix, knns, dists, n_components::Integer)
+function initialize_embedding(::KnnGraphLayout, graph::AbstractMatrix, knns, dists, maxoutdim::Integer)
     n = size(knns, 2)
-    embed = zeros(Float32, n_components, n)
+    embed = zeros(Float32, maxoutdim, n)
     E = MatrixDatabase(embed)
     C = knn_fast_components_(knns)
     F = revknn_frequencies_(knns)

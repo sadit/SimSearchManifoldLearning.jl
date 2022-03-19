@@ -1,23 +1,23 @@
 # an implementation of Uniform Manifold Approximation and Projection
 # for Dimension Reduction, L. McInnes, J. Healy, J. Melville, 2018.
 
-import StatsAPI: fit, predict
-export UMAP_, fit, predict, optimize_embedding!
+export UMAP, optimize_embedding!
 
-struct UMAP_{GraphType<:AbstractMatrix, EmbeddingType<:AbstractMatrix}
-    graph::GraphType
-    embedding::EmbeddingType
-    n_neighbors::Int
+struct UMAP
+    graph::SparseMatrixCSC{Float32,Int32}
+    embedding::Matrix{Float32}
+    k::Int
     a::Float32
     b::Float32
+    index::Union{AbstractSearchContext,Nothing}   # this object is used with function barriers
 end
 
 const SMOOTH_K_TOLERANCE = 1e-5
 
 """
-    fit(Type{UMAP_}, knns, dists [, n_components=2]; <kwargs>) -> UMAP_ object
+    fit(Type{UMAP}, knns, dists [, maxoutdim=2]; <kwargs>) -> UMAP object
 
-Create a model representing the embedding of data `(X, dist)` into `n_components`-dimensional space.
+Create a model representing the embedding of data `(X, dist)` into `maxoutdim`-dimensional space.
 Note that `knns` and `dists` jointly specify the all `k` nearest neighbors of ``(X, dist)``,
 these results must not include self-references. See the `allknn` method in `SimilaritySearch`.
 
@@ -29,7 +29,7 @@ these results must not include self-references. See the `allknn` method in `Simi
 It uses all available threads for the projection.
 
 # Keyword Arguments
-- `n_components::Integer=2`: The number of components in the embedding
+- `maxoutdim::Integer=2`: The number of components in the embedding
 - `n_epochs::Integer = 300`: the number of training epochs for embedding optimization
 - `learning_rate::Real = 1`: the initial learning rate during optimization
 - `learning_rate_decay::Real = 0.9`: how much `learning_rate` is updated on each epoch `(learning_rate *= learning_rate_decay)` (a minimum value is also considered as 1e-6)
@@ -44,10 +44,10 @@ It uses all available threads for the projection.
 - `b = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
 
 """
-function fit(::Type{<:UMAP_},
+function fit(::Type{UMAP},
     knns::Matrix{<:Integer},
     dists::Matrix{<:AbstractFloat};
-    n_components::Integer = 2,
+    maxoutdim::Integer = 2,
     n_epochs::Integer = 50,
     learning_rate::Real = 1f0,
     learning_rate_decay::Real = 0.9f0,
@@ -66,7 +66,7 @@ function fit(::Type{<:UMAP_},
     learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
     size(knns) == size(dists) || throw(ArgumentError("knns and dists must have the same size"))
-    n_components > 1 || throw(ArgumentError("n_components must be greater than 1"))
+    maxoutdim > 1 || throw(ArgumentError("maxoutdim must be greater than 1"))
 
     # argument checking
     n_epochs > 0 || throw(ArgumentError("n_epochs must be greater than 0"))
@@ -79,7 +79,7 @@ function fit(::Type{<:UMAP_},
     println(stderr, "*** computing graph")
     timegraph = @elapsed graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio)
     println(stderr, "*** layout embedding $(typeof(layout))")
-    timeinit = @elapsed embedding = initialize_embedding(layout, graph, knns, dists, n_components)
+    timeinit = @elapsed embedding = initialize_embedding(layout, graph, knns, dists, maxoutdim)
     println(stderr, "*** fit ab / embedding")
     a, b = fit_ab(min_dist, spread, nothing, nothing)
     println(stderr, "*** opt embedding")
@@ -93,28 +93,27 @@ UMAP construction time cost report:
 - embedding init: $timeinit
 - embedding opt: $timeopt
 """)
-    UMAP_(graph, embedding, n_neighbors, a, b)
+    UMAP(graph, embedding, n_neighbors, a, b, nothing)
 end
 
 """
-    fit(::Type{<:UMAP_}, index_or_data;
-        n_neighbors=15,
+    fit(::Type{<:UMAP}, index_or_data;
+        k=15,
         dist::SemiMetric=L2Distance,
         kwargs...)
 
 Wrapper for `fit` that computes `n_nearests` nearest neighbors on `index_or_data` and passes these and `kwargs` to regular `fit`.
-It returns a named tuple of the from `(index=index, knns=knns, dists=dists, model=umap_model)` that you can use for easy predict calls
 
 # Arguments
 
 - `index_or_data`: an already constructed index (see `SimilaritySearch`), a matrix, or an abstact database (`SimilaritySearch`)
-- `n_neighbors=15`: number of neighbors to compute
+- `k=15`: number of neighbors to compute
 - `dist=L2Distance()`: A distance function (see `Distances.jl`)
 """
 function fit(
-        t::Type{<:UMAP_},
+        t::Type{<:UMAP},
         index_or_data::Union{<:AbstractSearchContext,<:AbstractDatabase,<:AbstractMatrix};
-        n_neighbors::Integer=15,
+        k::Integer=15,
         dist::SemiMetric=L2Distance(),
         kwargs...
         )
@@ -127,14 +126,15 @@ function fit(
         index_or_data
     end
 
-    0 < n_neighbors < length(index) || throw(ArgumentError("number of neighbors must be in 0 < n_neighbors < number of points"))
+    0 < k < length(index) || throw(ArgumentError("number of neighbors must be in 0 < k < number of points"))
 
-    knns, dists = allknn(index, n_neighbors; parallel=true)
-    (index=index, knns=knns, dists=dists, model=fit(t, knns, dists; kwargs...))
+    knns, dists = allknn(index, k; parallel=true)
+    m = fit(t, knns, dists; kwargs...)
+    UMAP(m.graph, m.embedding, m.k, m.a, m.b, index)
 end
 
 """
-    optimize_embedding!(model::UMAP_; <kwargs>)
+    optimize_embedding!(model::UMAP; <kwargs>)
 
 Improves the internal embedding of the model applying more optimizing epochs
 
@@ -146,23 +146,33 @@ Improves the internal embedding of the model applying more optimizing epochs
 - `neg_sample_rate::Integer = 5`
 
 """
-function optimize_embedding!(U::UMAP_;
+function optimize_embedding!(U::UMAP;
     n_epochs=50,
     learning_rate::Real = 0.1f0,
     learning_rate_decay::Real = 0.9f0,
     repulsion_strength::Float32 = 1f0,
     neg_sample_rate::Integer = 5,
 )
-    U.embedding = optimize_embedding(U.graph, U.embedding, U.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, U.a, U.b; learning_rate_decay)
+    optimize_embedding(U.graph, U.embedding, U.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, U.a, U.b; learning_rate_decay)
     U
 end
 
 """
-    fit(umap_::UMAP_, n_components)
+    fit(UMAP::UMAP, maxoutdim; <kwargs>)
 
 Reuses a previously computed model with a different number of components
+
+# Keyword arguments
+
+- `n_epochs=50`: number of epochs to run
+- `learning_rate::Real = 1f0`: initial learning rate
+- `learning_rate_decay::Real = 0.9f0`: how learning rate is adjusted per epoch `learning_rate *= learning_rate_decay`
+- `repulsion_strength::Float32 = 1f0`: repulsion force (for negative sampling)
+- `neg_sample_rate::Integer = 5`: how many negative examples per object are used.
+
 """
-function fit(U::UMAP_, n_components::Integer;
+function fit(
+        U::UMAP, maxoutdim::Integer;
         n_epochs=50,
         learning_rate::Real = 1f0,
         learning_rate_decay::Real = 0.9f0,
@@ -174,29 +184,29 @@ function fit(U::UMAP_, n_components::Integer;
     )
 
     k, n = size(U.embedding)
-    embedding = if k >= n_components
-        U.embedding[1:n_components, :]
+    embedding = if k >= maxoutdim
+        U.embedding[1:maxoutdim, :]
     else
-        vcat(U.embedding, rand(-10f0:eps(Float32):10f0, n_components-k, n))
+        vcat(U.embedding, rand(-10f0:eps(Float32):10f0, maxoutdim-k, n))
     end
 
     learning_rate = convert(Float32, learning_rate)
     learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
     embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay)
-    UMAP_(graph, embedding, U.n_neighbors, a, b)
+    UMAP(graph, embedding, U.k, a, b, U.index)
 end
 
 """
-    predict(model::UMAP_)
+    predict(model::UMAP)
 
 Returns the internal embedding (the entire dataset projection)
 """
-predict(model::UMAP_) = model.embedding
+predict(model::UMAP) = model.embedding
 
 """
-    predict(model::UMAP_, index::AbstractSearchContext, Q::AbstractDatabase; n_neighbors::Integer=15, kwargs...)
-    predict(model::UMAP_, knns, dists; <kwargs>) -> embedding
+    predict(model::UMAP, Q::AbstractDatabase; k::Integer=15, kwargs...)
+    predict(model::UMAP, knns, dists; <kwargs>) -> embedding
 
 Use the given model to embed new points ``Q`` into an existing embedding produced by ``(X, dist)``.
 The second function represent `Q` using its `k` nearest neighbors in `X` under some distance function (`knns` and `dists`)
@@ -204,10 +214,10 @@ See `searchbatch` in `SimilaritySearch` to compute both (also for `AbstractDatab
 
 # Arguments
 - `model`: The fitted model
-- `knns`: matrix of identifiers (integers) of size ``(n_neighbors, |Q|)``
-- `dists`: matrix of distances (floating point values) of size ``(n_neighbors, |Q|)``
+- `knns`: matrix of identifiers (integers) of size ``(k, |Q|)``
+- `dists`: matrix of distances (floating point values) of size ``(k, |Q|)``
 
-Note: the number of neighbors `n_neighbors` (embedded into knn matrices) control the embedding. Larger values capture more global structure in the data, while small values capture more local structure.
+Note: the number of neighbors `k` (embedded into knn matrices) control the embedding. Larger values capture more global structure in the data, while small values capture more local structure.
 
 # Keyword Arguments
 
@@ -219,7 +229,7 @@ Note: the number of neighbors `n_neighbors` (embedded into knn matrices) control
 - `repulsion_strength::Real = 1`: the weighting of negative samples during the optimization process.
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
 """
-function predict(model::UMAP_,
+function predict(model::UMAP,
                 knns::AbstractMatrix{<:Integer},
                 dists::AbstractMatrix{<:AbstractFloat};
                 n_epochs::Integer = 30,
@@ -249,21 +259,22 @@ function predict(model::UMAP_,
     optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, model.a, model.b; learning_rate_decay)
 end
 
-function predict(model::UMAP_,
-        index::AbstractSearchContext, Q;
-        n_neighbors::Integer=15,
+function predict(model::UMAP, Q;
+        k::Integer=15,
         kwargs...
     )
+    model.index === nothing && throw(ArgumentError("this UMAP model doesn't support solving knn queries since `model.index == nothing` please use the alternative function that accepts `knns` and `dists` matrices"))
     Q = convert(AbstractDatabase, Q)
-    0 < n_neighbors <= length(Q) || throw(ArgumentError("number of neighbors must be in 0 < n_neighbors <= number of points"))
-    knns, dists = searchbatch(index, Q, n_neighbors; parallel=true)
+    0 < k <= length(Q) || throw(ArgumentError("number of neighbors must be in 0 < k <= number of points"))
+    knns, dists = searchbatch(model.index, Q, k; parallel=true)
     predict(model, knns, dists; kwargs...)
 end
+
 """
     fuzzy_simplicial_set(knns, dists, n_points, local_connectivity, set_op_ratio, apply_fuzzy_combine=true) -> membership_graph::SparseMatrixCSC, 
 
 Construct the local fuzzy simplicial sets of each point represented by its distances
-to its `n_neighbors` nearest neighbors, stored in `knns` and `dists`, normalizing the distances
+to its `k` nearest neighbors, stored in `knns` and `dists`, normalizing the distances
 on the manifolds, and converting the metric space to a simplicial set.
 `n_points` indicates the total number of points of the original data, while `knns` contains
 indices of some subset of those points (ie some subset of 1:`n_points`). If `knns` represents
@@ -280,7 +291,7 @@ function fuzzy_simplicial_set(knns::AbstractMatrix,
                               local_connectivity,
                               set_operation_ratio,
                               apply_fuzzy_combine=true)
-    # @time σs, ρs = smooth_knn_dists(dists, n_neighbors, local_connectivity)
+    # @time σs, ρs = smooth_knn_dists(dists, k, local_connectivity)
     # @time rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
     rows, cols, vals = compute_membership_strengths(knns, dists, local_connectivity)
     # transform uses n_points != size(knns, 2)

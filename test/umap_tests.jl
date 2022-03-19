@@ -2,32 +2,32 @@
 @testset "umap tests" begin
     @testset "constructor" begin
         @testset "argument validation tests" begin
-            @test_throws ArgumentError fit(UMAP_, [1. 1.]; n_neighbors=0) # n_neighbors error
-            @test_throws ArgumentError fit(UMAP_, [1. 1.]; n_components=0, n_neighbors=1) # n_comps error
-            @test_throws ArgumentError fit(UMAP_, [1. 1.; 1. 1.; 1. 1.]; n_neighbors=1, min_dist = 0.) # min_dist error
+            @test_throws ArgumentError fit(UMAP, [1. 1.]; k=0) # k error
+            @test_throws ArgumentError fit(UMAP, [1. 1.]; maxoutdim=0, k=1) # n_comps error
+            @test_throws ArgumentError fit(UMAP, [1. 1.; 1. 1.; 1. 1.]; k=1, min_dist = 0.) # min_dist error
         end
     end
 
     @testset "input type stability tests" begin
-        m = fit(UMAP_, rand(5, 100); layout=RandomLayout())
-        @test eltype(m.model.graph) == Float32  ## input Float64 -> output Float32 (SimilaritySearch distances are Float32 and the embedding takes distances as input)
-        @test size(m.model.graph) == (100, 100)
-        @test size(m.model.embedding) == (2, 100)
-        ## @test m.model.data === data
-        @test fit(UMAP_, rand(Float32, 5, 100); layout=RandomLayout()).model.graph isa AbstractMatrix{Float32}
+        m = fit(UMAP, rand(5, 100); layout=RandomLayout())
+        @test eltype(m.graph) == Float32  ## input Float64 -> output Float32 (SimilaritySearch distances are Float32 and the embedding takes distances as input)
+        @test size(m.graph) == (100, 100)
+        @test size(m.embedding) == (2, 100)
+        ## @test m.data === data
+        @test fit(UMAP, rand(Float32, 5, 100); layout=RandomLayout()).graph isa AbstractMatrix{Float32}
     end
 
     @testset "layouts" begin
-        model = fit(UMAP_, rand(5, 100); layout=RandomLayout())
-        model = fit(UMAP_, rand(5, 100); layout=SpectralLayout())
-        model = fit(UMAP_, rand(5, 100); layout=PrecomputedLayout(rand(2, 100)))
-        model = fit(UMAP_, rand(5, 100); layout=KnnGraphLayout())
+        model = fit(UMAP, rand(5, 100); layout=RandomLayout())
+        model = fit(UMAP, rand(5, 100); layout=SpectralLayout())
+        model = fit(UMAP, rand(5, 100); layout=PrecomputedLayout(rand(2, 100)))
+        model = fit(UMAP, rand(5, 100); layout=KnnGraphLayout())
     end
 
     @testset "reusing umap" begin
-        A = fit(UMAP_, rand(5, 100); n_components=2, layout=RandomLayout())
-        B = fit(A.model, 3)
-        @test size(A.model.embedding) == (2, 100)
+        A = fit(UMAP, rand(5, 100); maxoutdim=2, layout=RandomLayout())
+        B = fit(A, 3)
+        @test size(A.embedding) == (2, 100)
         @test size(B.embedding) == (3, 100)
     end
 
@@ -75,7 +75,7 @@
         sigmas = Float32[]
         
         for col in eachcol(knn_dists)
-            ρ, σ = UMAP.smooth_knn_dists_vector(col, k, local_connectivity; niter, bandwidth)
+            ρ, σ = SimSearchManifoldLearning.smooth_knn_dists_vector(col, k, local_connectivity; niter, bandwidth)
             push!(rhos, ρ)
             push!(sigmas, σ)
         end
@@ -94,7 +94,7 @@
         sigmas = Float32[]
         
         for col in eachcol(knn_dists)
-            ρ, σ = UMAP.smooth_knn_dists_vector(col, 2, 1; niter, bandwidth)
+            ρ, σ = SimSearchManifoldLearning.smooth_knn_dists_vector(col, 2, 1; niter, bandwidth)
             push!(rhos, ρ)
             push!(sigmas, σ)
         end
@@ -184,26 +184,26 @@
     
     @testset "umap predict" begin
         @testset "argument validation tests" begin
-            m = fit(UMAP_, rand(5, 10), n_components=2, n_neighbors=2, n_epochs=1)
+            m = fit(UMAP, rand(5, 10), maxoutdim=2, k=2, n_epochs=1)
             query = rand(5, 8)
-            @test_throws ArgumentError predict(m.model, m.index, query; n_neighbors=0) # n_neighbors error
-            @test_throws ArgumentError predict(m.model, m.index, query; n_neighbors=15) # n_neighbors error
-            # @test_throws ArgumentError predict(model, query; n_neighbors=1, min_dist = 0.) # min_dist error
-            t = predict(m.model, m.index, query; n_neighbors=3)
+            @test_throws ArgumentError predict(m, query; k=0) # k error
+            @test_throws ArgumentError predict(m, query; k=15) # k error
+            # @test_throws ArgumentError predict(model, query; k=1, min_dist = 0.) # min_dist error
+            t = predict(m, query; k=3)
             @test size(t) == (2, 8)
         end
 
         @testset "transform test" begin
             data = rand(5, 30)
-            m = fit(UMAP_, rand(5, 30), n_neighbors=2, n_epochs=1)
-            embedding = predict(m.model, m.index, rand(5, 10), n_epochs=5, n_neighbors=5)
+            m = fit(UMAP, rand(5, 30), k=2, n_epochs=1)
+            embedding = predict(m, rand(5, 10), n_epochs=5, k=5)
             @test size(embedding) == (2, 10)
-            @test typeof(embedding) == typeof(m.model.embedding)
+            @test typeof(embedding) == typeof(m.embedding)
 
-            m = fit(UMAP_, rand(Float32, 5, 30), n_neighbors=2, n_epochs=1)
-            embedding = @inferred predict(m.model, m.index, rand(5, 50), n_epochs=5, n_neighbors=5)
+            m = fit(UMAP, rand(Float32, 5, 30), k=2, n_epochs=1)
+            embedding = @inferred predict(m, rand(5, 50), n_epochs=5, k=5)
             @test size(embedding) == (2, 50)
-            @test typeof(embedding) == typeof(m.model.embedding)
+            @test typeof(embedding) == typeof(m.embedding)
         end
     end
 end
