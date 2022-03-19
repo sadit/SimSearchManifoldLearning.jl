@@ -23,7 +23,7 @@ Additionally,  it improves multithreading support in the KNN and the UMAP projec
 
 ## Examples and demonstrations
 
-(https://sadit.github.io/SimilaritySearchDemos/)[https://sadit.github.io/SimilaritySearchDemos/] 
+[https://sadit.github.io/SimilaritySearchDemos/](https://sadit.github.io/SimilaritySearchDemos/)
 
 NOTE: Currently, they are working with direct implementations of this package. This will be changed soon (I will start once the package becomes part of the general registry).
 
