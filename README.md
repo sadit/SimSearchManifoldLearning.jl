@@ -1,3 +1,6 @@
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://sadit.github.io/SimSearchManifoldLearning.jl/dev/)
+[![Build Status](https://github.com/sadit/SimSearchManifoldLearning.jl/workflows/CI/badge.svg)](https://github.com/sadit/SimSearchManifoldLearning.jl/actions)
+
 # SimilaritySearch and ManifoldLearning (and UMAP)
 This package provides some support to use `SimilaritySearch` with manifold learning methods. In particular,
 we implement the required methods to implement `knn` function for `ManifoldLearning` and also provides an `UMAP`
