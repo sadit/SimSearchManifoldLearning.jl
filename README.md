@@ -25,7 +25,7 @@ Additionally,  it improves multithreading support in the KNN and the UMAP projec
 
 [https://sadit.github.io/SimilaritySearchDemos/](https://sadit.github.io/SimilaritySearchDemos/)
 
-NOTE: Currently, they are working with direct implementations of this package. This will be changed soon (I will start once the package becomes part of the general registry).
+NOTE: Currently, these examples are working with direct implementations of this package. This will be changed soon (I will start once the package becomes part of the general registry).
 
 ## Disclaimer
 This implementation is a work-in-progress. If you encounter any issues, please create

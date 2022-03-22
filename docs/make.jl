@@ -12,7 +12,8 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
-        "API" => "api.md"
+        "UMAP" => "apiumap.md",
+        "API ManifoldLearning" => "apiml.md"
     ],
 )
 

@@ -3,6 +3,19 @@
 
 export UMAP, optimize_embedding!
 
+"""
+    struct UMAP
+
+The UMAP model struct
+
+# Properties
+
+- `graph`: The fuzzy simplicial set that represents the all knn graph
+- `embedding`: The embedding projection 
+- `k` the number of neighbors used to create the model
+- `a` and `b`: parameters to ensure an well distributed and smooth projection (from `min_dist` and `spread` arguments in `fit`)
+- `index`: the search index, it can be nothing if the model is handled directly with precomputed `knns` and `dists` matrices
+"""
 struct UMAP
     graph::SparseMatrixCSC{Float32,Int32}
     embedding::Matrix{Float32}
@@ -136,7 +149,7 @@ end
 """
     optimize_embedding!(model::UMAP; <kwargs>)
 
-Improves the internal embedding of the model applying more optimizing epochs
+Improves the internal embedding of the model refining with more epochs
 
 # Keyword arguments
 - `n_epochs=50`
