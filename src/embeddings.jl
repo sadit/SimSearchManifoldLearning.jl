@@ -57,7 +57,7 @@ function optimize_embedding(graph,
             ref_embedding_ .= query_embedding_
         end
 
-        learning_rate = max(learning_rate * learning_rate_decay, 1f-6)
+        learning_rate = max(learning_rate * learning_rate_decay, 1f-4)
     end
 
     query_embedding_

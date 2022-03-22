@@ -29,7 +29,8 @@ end
     KnnGraphLayout <: AbstractLayout
 
 
-A lattice like + clouds of points initialization that uses the computed all-knn graph
+A lattice like + clouds of points initialization that uses the computed all-knn graph.
+This layout initialization is a simple proof of concept, so please use it under this assumption.
 """
 struct KnnGraphLayout <: AbstractLayout
 end
