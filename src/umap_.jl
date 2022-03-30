@@ -28,7 +28,7 @@ end
 const SMOOTH_K_TOLERANCE = 1e-5
 
 """
-    fit(Type{UMAP}, knns, dists [, maxoutdim=2]; <kwargs>) -> UMAP object
+    fit(Type{UMAP}, knns, dists; <kwargs>) -> UMAP object
 
 Create a model representing the embedding of data `(X, dist)` into `maxoutdim`-dimensional space.
 Note that `knns` and `dists` jointly specify the all `k` nearest neighbors of ``(X, dist)``,
@@ -79,7 +79,7 @@ function fit(::Type{UMAP},
     learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
     size(knns) == size(dists) || throw(ArgumentError("knns and dists must have the same size"))
-    maxoutdim > 1 || throw(ArgumentError("maxoutdim must be greater than 1"))
+    maxoutdim > 0 || throw(ArgumentError("maxoutdim must be greater than 0"))
 
     # argument checking
     n_epochs > 0 || throw(ArgumentError("n_epochs must be greater than 0"))
@@ -141,7 +141,7 @@ function fit(
 
     0 < k < length(index) || throw(ArgumentError("number of neighbors must be in 0 < k < number of points"))
 
-    knns, dists = allknn(index, k; parallel=true)
+    @time knns, dists = allknn(index, k; parallel=true)
     m = fit(t, knns, dists; kwargs...)
     UMAP(m.graph, m.embedding, m.k, m.a, m.b, index)
 end

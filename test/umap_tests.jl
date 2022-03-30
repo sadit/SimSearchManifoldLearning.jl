@@ -24,6 +24,12 @@
         model = fit(UMAP, rand(5, 100); layout=KnnGraphLayout())
     end
 
+    @testset "dimensions" begin
+        A = fit(UMAP, rand(5, 100); maxoutdim=1, layout=RandomLayout())
+        A = fit(UMAP, rand(5, 100); maxoutdim=2, layout=RandomLayout())
+        A = fit(UMAP, rand(5, 100); maxoutdim=3, layout=RandomLayout())
+    end
+
     @testset "reusing umap" begin
         A = fit(UMAP, rand(5, 100); maxoutdim=2, layout=RandomLayout())
         B = fit(A, 3)
