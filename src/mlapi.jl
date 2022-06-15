@@ -141,16 +141,16 @@ end
 
 Solves `k` nearest neighbors queries of `Q` using `G` (a SimilaritySearch index).
 """
-function ManifoldLearning.knn(G::ManifoldKnnIndex, Q::AbstractMatrix{T}, k::Integer; self::Bool=false, weights::Bool=true, kwargs...) where {T<:Real}
+function ManifoldLearning.knn(G::ManifoldKnnIndex, Q::AbstractMatrix{T}, k::Integer; self::Bool=false, weights::Bool=true, minbatch=0, kwargs...) where {T<:Real}
     m, n = size(Q)
     self && throw(ArgumentError("SimilaritySearch `"))
     n > k || throw(ArgumentError("Number of observations must be more than $(k)"))
     Q = MatrixDatabase(Q)
     KNNS = [KnnResult(k+self) for _ in 1:n]  # we can't use `allknn` efficiently from ManifoldLearning
-    @time searchbatch(G.index, Q, KNNS; parallel=true)
+    @time searchbatch(G.index, Q, KNNS; minbatch)
 
-    E = [res.id for res in KNNS] # reusing the internal structure
-    W = [res.dist for res in KNNS] # `KnnResult` distances are always Float32
+    E = [idview(res) for res in KNNS] # reusing the internal structure
+    W = [distview(res) for res in KNNS] # `KnnResult` distances are always Float32
 
     if self  # removes zero/close-to-zero neighbors
         for i in eachindex(E)

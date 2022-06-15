@@ -53,7 +53,7 @@
         @test issymmetric(umap_graph)
         @test eltype(umap_graph) == Float32
 
-        umap_graph = fuzzy_simplicial_set(knns, dists, 200, 1, 1., false)
+        umap_graph = fuzzy_simplicial_set(knns, dists, 200, 1, 1., true, false)
         @test all(0. .<= umap_graph .<= 1.)
         @test size(umap_graph) == (200, 3)
     end
@@ -67,8 +67,18 @@
         bandwidth = 1f0
         niter = 64
         sigma = smooth_knn_dist_opt_binsearch(dists, rho, k, bandwidth, niter)
-        psum(ds, r, s) = sum(exp.(-max.(ds .- r, 0.) ./ s))
-        @test psum(dists, rho, sigma) - log2(k)*bandwidth < SMOOTH_K_TOLERANCE
+        function psum(ds, r, s)
+            D = 0.0
+            for d in ds
+                if d > 0  # removes self-reference
+                    D += exp(-max(d - r, 0.0) / s)
+                end
+            end
+
+            D
+        end
+
+        @test psum(dists, rho, sigma) - log2(k-1)*bandwidth < SMOOTH_K_TOLERANCE
 
         knn_dists = [0. 0. 0.;
                      1. 2. 3.;
@@ -89,7 +99,9 @@
         @show rhos, sigmas
         
         @test rhos == [1., 2., 3.]
-        diffs = [psum(knn_dists[:,i], rhos[i], sigmas[i]) for i in 1:3] .- log2(6)
+        PS = [psum(knn_dists[:, i], rhos[i], sigmas[i]) for i in 1:3]
+        diffs = PS .- log2(k-1)  # k-1 => removes self reference
+        @info PS diffs
         @test all(diffs .< SMOOTH_K_TOLERANCE)
 
         knn_dists = Float32[0. 0. 0.;
@@ -120,7 +132,7 @@
         true_rows = [1, 2, 2, 1, 3, 2]
         true_cols = [1, 1, 2, 2, 3, 3]
         true_vals = Float32[0., 1., 0., exp(-1f0), 0., 1.]
-        rows, cols, vals = compute_membership_strengths(knns, dists, 1)
+        rows, cols, vals = compute_membership_strengths(knns, dists, 1, true)
         @show rows, cols, vals
         @test rows == true_rows
         @test cols == true_cols  # sigmas and rhos are computed inside and the given values don't match with those
@@ -151,7 +163,8 @@
     end
 
     @testset "spectral_layout" begin
-        A = sprand(10000, 10000, 0.001)
+        @info "spectral_layout!"
+        A = sprand(Float64, 1000, 1000, 0.01)
         B = dropzeros!(A + A' - A .* A')
         layout = spectral_layout(B, 5)
         @test layout isa Array{Float64, 2}
@@ -162,6 +175,7 @@
     end
 
     @testset "initialize_embedding" begin
+        @info "initialize_embedding"
         graph = Float32[5 0 1 1;
                         2 4 1 1;
                         3 6 8 8] ./10
@@ -187,10 +201,10 @@
         @test isapprox(embedding, actual, atol=1e-2)
     end
 
-    
     @testset "umap predict" begin
+        @info "===== umap predict ====="
         @testset "argument validation tests" begin
-            m = fit(UMAP, rand(5, 10), maxoutdim=2, k=2, n_epochs=1)
+            m = fit(UMAP, rand(5, 30), maxoutdim=2, k=3, n_epochs=1)
             query = rand(5, 8)
             @test_throws ArgumentError predict(m, query; k=0) # k error
             @test_throws ArgumentError predict(m, query; k=15) # k error
@@ -200,13 +214,12 @@
         end
 
         @testset "transform test" begin
-            data = rand(5, 30)
-            m = fit(UMAP, rand(5, 30), k=2, n_epochs=1)
+            m = fit(UMAP, rand(5, 30), k=3, n_epochs=1)
             embedding = predict(m, rand(5, 10), n_epochs=5, k=5)
             @test size(embedding) == (2, 10)
             @test typeof(embedding) == typeof(m.embedding)
 
-            m = fit(UMAP, rand(Float32, 5, 30), k=2, n_epochs=1)
+            m = fit(UMAP, rand(Float32, 5, 30), k=3, n_epochs=1)
             embedding = @inferred predict(m, rand(5, 50), n_epochs=5, k=5)
             @test size(embedding) == (2, 50)
             @test typeof(embedding) == typeof(m.embedding)

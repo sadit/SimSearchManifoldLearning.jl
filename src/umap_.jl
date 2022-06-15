@@ -26,6 +26,7 @@ struct UMAP
 end
 
 const SMOOTH_K_TOLERANCE = 1e-5
+const ZERO_DISTANCE_THRESHOLD = 1e-6
 
 """
     fit(Type{UMAP}, knns, dists; <kwargs>) -> UMAP object
@@ -70,7 +71,8 @@ function fit(::Type{UMAP},
     set_operation_ratio::Real = 1f0,
     local_connectivity::Integer = 1,
     repulsion_strength::Float32 = 1f0,
-    neg_sample_rate::Integer = 5
+    neg_sample_rate::Integer = 5,
+    minbatch::Integer = 0
 )
     min_dist = convert(Float32, min_dist)
     spread = convert(Float32, spread)
@@ -90,13 +92,13 @@ function fit(::Type{UMAP},
 
     n_neighbors, n = size(knns)
     println(stderr, "*** computing graph")
-    timegraph = @elapsed graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio)
+    timegraph = @elapsed graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, true; minbatch)
     println(stderr, "*** layout embedding $(typeof(layout))")
     timeinit = @elapsed embedding = initialize_embedding(layout, graph, knns, dists, maxoutdim)
     println(stderr, "*** fit ab / embedding")
     a, b = fit_ab(min_dist, spread, nothing, nothing)
     println(stderr, "*** opt embedding")
-    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay)
+    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; minbatch, learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
     println(stderr,
@@ -113,6 +115,7 @@ end
     fit(::Type{<:UMAP}, index_or_data;
         k=15,
         dist::SemiMetric=L2Distance,
+        minbatch=0,
         kwargs...)
 
 Wrapper for `fit` that computes `n_nearests` nearest neighbors on `index_or_data` and passes these and `kwargs` to regular `fit`.
@@ -120,14 +123,18 @@ Wrapper for `fit` that computes `n_nearests` nearest neighbors on `index_or_data
 # Arguments
 
 - `index_or_data`: an already constructed index (see `SimilaritySearch`), a matrix, or an abstact database (`SimilaritySearch`)
+
+# Keyword arguments
 - `k=15`: number of neighbors to compute
 - `dist=L2Distance()`: A distance function (see `Distances.jl`)
+- `minbatch=0`: controls how parallel computation is made, zero to use `SimilaritySearch` defaults and -1 to avoid parallel computation; passed to `@batch` macro of `Polyester` package.
 """
 function fit(
         t::Type{<:UMAP},
         index_or_data::Union{<:AbstractSearchContext,<:AbstractDatabase,<:AbstractMatrix};
         k::Integer=15,
         dist::SemiMetric=L2Distance(),
+        minbatch::Integer=0,
         kwargs...
         )
     index = if index_or_data isa AbstractMatrix
@@ -141,8 +148,8 @@ function fit(
 
     0 < k < length(index) || throw(ArgumentError("number of neighbors must be in 0 < k < number of points"))
 
-    @time knns, dists = allknn(index, k; parallel=true)
-    m = fit(t, knns, dists; kwargs...)
+    @time knns, dists = allknn(index, k; minbatch)
+    m = fit(t, knns, dists; minbatch, kwargs...)
     UMAP(m.graph, m.embedding, m.k, m.a, m.b, index)
 end
 
@@ -157,7 +164,7 @@ Improves the internal embedding of the model refining with more epochs
 - `learning_rate_decay::Real = 0.9f0`
 - `repulsion_strength::Float32 = 1f0`
 - `neg_sample_rate::Integer = 5`
-
+- `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function optimize_embedding!(U::UMAP;
     n_epochs=50,
@@ -165,8 +172,9 @@ function optimize_embedding!(U::UMAP;
     learning_rate_decay::Real = 0.9f0,
     repulsion_strength::Float32 = 1f0,
     neg_sample_rate::Integer = 5,
+    minbatch::Integer = 0
 )
-    optimize_embedding(U.graph, U.embedding, U.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, U.a, U.b; learning_rate_decay)
+    optimize_embedding(U.graph, U.embedding, U.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, U.a, U.b; learning_rate_decay, minbatch)
     U
 end
 
@@ -182,7 +190,7 @@ Reuses a previously computed model with a different number of components
 - `learning_rate_decay::Real = 0.9f0`: how learning rate is adjusted per epoch `learning_rate *= learning_rate_decay`
 - `repulsion_strength::Float32 = 1f0`: repulsion force (for negative sampling)
 - `neg_sample_rate::Integer = 5`: how many negative examples per object are used.
-
+- `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function fit(
         U::UMAP, maxoutdim::Integer;
@@ -192,6 +200,7 @@ function fit(
         repulsion_strength::Float32 = 1f0,
         neg_sample_rate::Integer = 5,
         graph = U.graph,
+        minbatch=0,
         a = U.a,
         b = U.b
     )
@@ -206,7 +215,7 @@ function fit(
     learning_rate = convert(Float32, learning_rate)
     learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay, minbatch)
     UMAP(graph, embedding, U.k, a, b, U.index)
 end
 
@@ -241,6 +250,7 @@ Note: the number of neighbors `k` (embedded into knn matrices) control the embed
 - `local_connectivity::Integer = 1`: the number of nearest neighbors that should be assumed to be locally connected. The higher this value, the more connected the manifold becomes. This should not be set higher than the intrinsic dimension of the manifold.
 - `repulsion_strength::Real = 1`: the weighting of negative samples during the optimization process.
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
+- `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function predict(model::UMAP,
                 knns::AbstractMatrix{<:Integer},
@@ -251,7 +261,8 @@ function predict(model::UMAP,
                 set_operation_ratio::Real = 1.0,
                 local_connectivity::Integer = 1,
                 repulsion_strength::Real = 1.0,
-                neg_sample_rate::Integer = 5
+                neg_sample_rate::Integer = 5,
+                minbatch::Integer = 0
     )
     
     set_operation_ratio = convert(Float32, set_operation_ratio)
@@ -267,24 +278,25 @@ function predict(model::UMAP,
     n_epochs = max(1, n_epochs)
     # main algorithm
     n = size(model.embedding, 2)
-    graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false)
+    graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false, false; minbatch)
     E = initialize_embedding(graph, model.embedding)
-    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, model.a, model.b; learning_rate_decay)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, model.a, model.b; learning_rate_decay, minbatch)
 end
 
 function predict(model::UMAP, Q;
         k::Integer=15,
+        minbatch::Integer=0,
         kwargs...
     )
     model.index === nothing && throw(ArgumentError("this UMAP model doesn't support solving knn queries since `model.index == nothing` please use the alternative function that accepts `knns` and `dists` matrices"))
     Q = convert(AbstractDatabase, Q)
     0 < k <= length(Q) || throw(ArgumentError("number of neighbors must be in 0 < k <= number of points"))
-    knns, dists = searchbatch(model.index, Q, k; parallel=true)
-    predict(model, knns, dists; kwargs...)
+    knns, dists = searchbatch(model.index, Q, k; minbatch)
+    predict(model, knns, dists; minbatch, kwargs...)
 end
 
 """
-    fuzzy_simplicial_set(knns, dists, n_points, local_connectivity, set_op_ratio, apply_fuzzy_combine=true) -> membership_graph::SparseMatrixCSC, 
+    fuzzy_simplicial_set(knns, dists, n_points, local_connectivity, set_op_ratio, apply_fuzzy_combine=true; minbatch=0) -> membership_graph::SparseMatrixCSC, 
 
 Construct the local fuzzy simplicial sets of each point represented by its distances
 to its `k` nearest neighbors, stored in `knns` and `dists`, normalizing the distances
@@ -303,10 +315,12 @@ function fuzzy_simplicial_set(knns::AbstractMatrix,
                               n_points::Integer,
                               local_connectivity,
                               set_operation_ratio,
-                              apply_fuzzy_combine=true)
+                              fitting=true,
+                              apply_fuzzy_combine=true;
+                              minbatch=0)
     # @time σs, ρs = smooth_knn_dists(dists, k, local_connectivity)
     # @time rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
-    rows, cols, vals = compute_membership_strengths(knns, dists, local_connectivity)
+    rows, cols, vals = compute_membership_strengths(knns, dists, local_connectivity, fitting; minbatch)
     # transform uses n_points != size(knns, 2)
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
@@ -326,28 +340,27 @@ and the nearest neighbor (nn_dists) from each point.
 """
 function smooth_knn_dists_vector(col::AbstractVector, k::Integer, local_connectivity::Integer; niter::Integer=64, bandwidth::Float32=1f0)
     local_connectivity = max(1, min(k, local_connectivity))
-    ρ = _find_first_non_zero(col, local_connectivity) #col[local_connectivity]
-    σ = smooth_knn_dist_opt_binsearch(col, ρ, k, bandwidth, niter)
+    ρ, sp = _find_first_non_zero(col, local_connectivity) #col[local_connectivity]
+    σ = smooth_knn_dist_opt_binsearch((@view col[sp:end]), ρ, k-sp+1, bandwidth, niter)
+    #σ = smooth_knn_dist_opt_binsearch((@view col[sp:end]), ρ, k, bandwidth, niter)
     ρ, σ
 end
 
-# check if this is necessary with SimilaritySearch, maybe just adding eps for near duplicates, d(u,v) = 0, is enough.
-# also check tests
 function _find_first_non_zero(v, sp)
     @inbounds for i in sp:length(v)
-        v[i] != 0 && return v[i]
+        v[i] > 0f0 && return v[i], i
     end
     
-    v[1]
+    v[1], 1
 end
 
 # calculate sigma for an individual point
 function smooth_knn_dist_kernel(dists, ρ, mid)
     D::Float32 = 0.0
-    invmid = -1f0/mid
+    invmid::Float32 = -1f0/mid
     @fastmath @inbounds @simd for d in dists
         d = d - ρ
-        D += d > 0 ? exp(d * invmid) : 1f0
+        D += ifelse(d <= 0, 1f0, exp(d * invmid))
     end
 
     D
@@ -355,8 +368,9 @@ end
 
 @fastmath function smooth_knn_dist_opt_binsearch(dists::AbstractVector, ρ, k, bandwidth, niter)
     target = bandwidth * log2(k)
-    lo::Float32 = 0
-    mid::Float32 = 1
+    #target == 0 && return eps(Float32)  # a small number
+    lo::Float32 = 0f0
+    mid::Float32 = 1f0
     hi::Float32 = Inf32
 
     for _ in 1:niter
@@ -380,30 +394,31 @@ end
 end
 
 """
-    compute_membership_strengths(knns, dists, local_connectivity) -> rows, cols, vals
+    compute_membership_strengths(knns, dists, local_connectivity, fitting; minbatch=0) -> rows, cols, vals
 
 Compute the membership strengths for the 1-skeleton of each fuzzy simplicial set.
 """
-function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, local_connectivity)
+function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, local_connectivity::Integer, fitting::Bool; minbatch=0)
     n = length(knns)
-    rows = Vector{Int32}(undef, n)
-    cols = Vector{Int32}(undef, n)
-    vals = Vector{Float32}(undef, n)
+    rows, cols, vals = Int32[], Int32[], Float32[]
+    sizehint!(rows, n); sizehint!(cols, n); sizehint!(vals, n)
     n_neighbors, n = size(knns) # WARN n is now different
+    minbatch = SimilaritySearch.getminbatch(minbatch, n)
 
-    Threads.@threads for i in 1:n
+    @batch minbatch=minbatch per=thread for i in 1:n
         D = @view dists[:, i]
+        I = @view knns[:, i]
         ρ, σ = smooth_knn_dists_vector(D, n_neighbors, local_connectivity)
         invσ = -1f0 / σ
-        ii = (i-1) * n_neighbors
-        @inbounds for k in 1:n_neighbors
-            # if i == knns[j, i] # THIS CONDITION NEVER HAPPENS WITH SimilaritySearch
-            d = D[k] - ρ
-            d = d > 0 ? exp(d * invσ) : 1f0
-            iii = ii + k
-            cols[iii] = i
-            rows[iii] = knns[k, i]
-            vals[iii] = d
+        @inbounds for (k, objID) in enumerate(I)
+            if fitting && i == objID # D[k] <= ZERO_DISTANCE_THRESHOLD  # i == objID and near dups
+                d = 0f0
+            else
+                d = D[k] - ρ
+                d = d <= 0 ? 1f0 : exp(d * invσ)
+            end
+            
+            push!(cols, i); push!(rows, objID); push!(vals, d)
         end
     end
     

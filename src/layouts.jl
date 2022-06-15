@@ -90,8 +90,8 @@ function spectral_layout(graph::SparseMatrixCSC{T},
                                    tol=1e-4,
                                    v0=ones(Float64, size(L, 1)),
                                    maxiter=size(L, 1)*5)
-    layout = permutedims(eigenvecs[:, 2:k])::Array{Float64, 2}
-    return convert.(T, layout)
+    layout = permutedims(eigenvecs[:, 2:k])::Matrix{Float64}
+    convert.(T, layout)
 end
 
 function revknn_frequencies_(knns)
