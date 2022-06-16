@@ -12,7 +12,7 @@ struct PrecomputedAffinityMatrix{MType<:AbstractMatrix} <: AbstractSearchContext
     dists::MType
 end
 
-function SimilaritySearch.search(p::PrecomputedAffinityMatrix, q::Integer, res::KnnResult)
+function SimilaritySearch.search(p::PrecomputedAffinityMatrix, q::Integer, res::KnnResult; pools=nothing)
     D = @view p.dists[:, q]
     @inbounds for i in eachindex(D)
         push!(res, i, D[i])
@@ -42,7 +42,7 @@ end
 
 SimilaritySearch.getpools(::PrecomputedKnns) = SimilaritySearch.GlobalKnnResult
 
-function SimilaritySearch.search(p::PrecomputedKnns, q::Integer, res::KnnResult)
+function SimilaritySearch.search(p::PrecomputedKnns, q::Integer, res::KnnResult; pools=nothing)
     N = @view p.knns[:, q]
     D = @view p.dists[:, q]
 
