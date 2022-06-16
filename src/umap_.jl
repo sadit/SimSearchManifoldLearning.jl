@@ -54,6 +54,8 @@ It uses all available threads for the projection.
 - `local_connectivity::Integer = 1`: the number of nearest neighbors that should be assumed to be locally connected. The higher this value, the more connected the manifold becomes. This should not be set higher than the intrinsic dimension of the manifold.
 - `repulsion_strength::Real = 1`: the weighting of negative samples during the optimization process.
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
+- `tol::Real = 1e-4`: tolerance to early stopping while optimizing embeddings.
+- `minbatch=0`: controls how parallel computation is made, zero to use `SimilaritySearch` defaults and -1 to avoid parallel computation; passed to `@batch` macro of `Polyester` package.
 - `a = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
 - `b = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
 
@@ -72,6 +74,7 @@ function fit(::Type{UMAP},
     local_connectivity::Integer = 1,
     repulsion_strength::Float32 = 1f0,
     neg_sample_rate::Integer = 5,
+    tol=1e-4,
     minbatch::Integer = 0
 )
     min_dist = convert(Float32, min_dist)
@@ -98,7 +101,7 @@ function fit(::Type{UMAP},
     println(stderr, "*** fit ab / embedding")
     a, b = fit_ab(min_dist, spread, nothing, nothing)
     println(stderr, "*** opt embedding")
-    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; minbatch, learning_rate_decay)
+    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; minbatch, tol, learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
     println(stderr,
@@ -159,22 +162,24 @@ end
 Improves the internal embedding of the model refining with more epochs
 
 # Keyword arguments
-- `n_epochs=50`
-- `learning_rate::Real = 0.1f0`
-- `learning_rate_decay::Real = 0.9f0`
-- `repulsion_strength::Float32 = 1f0`
-- `neg_sample_rate::Integer = 5`
+- `n_epochs=50`.
+- `learning_rate::Real = 0.1f0`.
+- `learning_rate_decay::Real = 0.9f0`.
+- `repulsion_strength::Float32 = 1f0`.
+- `neg_sample_rate::Integer = 5`.
+- `tol::Real = 1e-4`: tolerance to early stopping while optimizing embeddings.
 - `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function optimize_embedding!(U::UMAP;
-    n_epochs=50,
-    learning_rate::Real = 0.1f0,
-    learning_rate_decay::Real = 0.9f0,
-    repulsion_strength::Float32 = 1f0,
-    neg_sample_rate::Integer = 5,
-    minbatch::Integer = 0
-)
-    optimize_embedding(U.graph, U.embedding, U.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, U.a, U.b; learning_rate_decay, minbatch)
+        n_epochs=50,
+        learning_rate::Real = 0.1f0,
+        learning_rate_decay::Real = 0.9f0,
+        repulsion_strength::Float32 = 1f0,
+        neg_sample_rate::Integer = 5,
+        tol=1e-4,
+        minbatch::Integer = 0
+    )
+    optimize_embedding(U.graph, U.embedding, U.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, U.a, U.b; tol, learning_rate_decay, minbatch)
     U
 end
 
@@ -190,6 +195,7 @@ Reuses a previously computed model with a different number of components
 - `learning_rate_decay::Real = 0.9f0`: how learning rate is adjusted per epoch `learning_rate *= learning_rate_decay`
 - `repulsion_strength::Float32 = 1f0`: repulsion force (for negative sampling)
 - `neg_sample_rate::Integer = 5`: how many negative examples per object are used.
+- `tol::Real = 1e-4`: tolerance to early stopping while optimizing embeddings.
 - `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function fit(
@@ -201,6 +207,7 @@ function fit(
         neg_sample_rate::Integer = 5,
         graph = U.graph,
         minbatch=0,
+        tol=1e-4,
         a = U.a,
         b = U.b
     )
@@ -215,7 +222,7 @@ function fit(
     learning_rate = convert(Float32, learning_rate)
     learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; learning_rate_decay, minbatch)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; tol, learning_rate_decay, minbatch)
     UMAP(graph, embedding, U.k, a, b, U.index)
 end
 
@@ -250,6 +257,7 @@ Note: the number of neighbors `k` (embedded into knn matrices) control the embed
 - `local_connectivity::Integer = 1`: the number of nearest neighbors that should be assumed to be locally connected. The higher this value, the more connected the manifold becomes. This should not be set higher than the intrinsic dimension of the manifold.
 - `repulsion_strength::Real = 1`: the weighting of negative samples during the optimization process.
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
+- `tol::Real = 1e-4`: tolerance to early stopping while optimizing embeddings.
 - `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function predict(model::UMAP,
@@ -262,6 +270,7 @@ function predict(model::UMAP,
                 local_connectivity::Integer = 1,
                 repulsion_strength::Real = 1.0,
                 neg_sample_rate::Integer = 5,
+                tol::Real=1e-4,
                 minbatch::Integer = 0
     )
     
@@ -280,7 +289,7 @@ function predict(model::UMAP,
     n = size(model.embedding, 2)
     graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false, false; minbatch)
     E = initialize_embedding(graph, model.embedding)
-    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, model.a, model.b; learning_rate_decay, minbatch)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, model.a, model.b; tol, learning_rate_decay, minbatch)
 end
 
 function predict(model::UMAP, Q;
