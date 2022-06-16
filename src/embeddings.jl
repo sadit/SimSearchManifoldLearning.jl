@@ -76,13 +76,12 @@ function optimize_embedding(graph,
             end
         end
 
-        @info ep => abs(prev - curr[]) => curr[]
-        abs(prev - curr[]) < tol && begin     
-            @info " --------------------------- ***** early stopping by convergence ***** -------------------------- "
+        abs(prev - curr[]) < tol && begin           
             break
         end
 
         prev = curr[]
+        
         if self_reference # training -> update embedding
             ref_embedding_ .= query_embedding_
         end
