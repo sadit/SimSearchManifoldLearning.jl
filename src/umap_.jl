@@ -409,7 +409,10 @@ Compute the membership strengths for the 1-skeleton of each fuzzy simplicial set
 """
 function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, local_connectivity::Integer, fitting::Bool; minbatch=0)
     n = length(knns)
-    rows, cols, vals = Int32[], Int32[], Float32[]
+    rows = Vector{Int32}(undef, n)
+    cols = Vector{Int32}(undef, n)
+    vals = Vector{Float32}(undef, n)
+
     sizehint!(rows, n); sizehint!(cols, n); sizehint!(vals, n)
     n_neighbors, n = size(knns) # WARN n is now different
     minbatch = SimilaritySearch.getminbatch(minbatch, n)
@@ -419,6 +422,7 @@ function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatri
         I = @view knns[:, i]
         ρ, σ = smooth_knn_dists_vector(D, n_neighbors, local_connectivity)
         invσ = -1f0 / σ
+        ii = (i-1) * n_neighbors
         @inbounds for (k, objID) in enumerate(I)
             if fitting && i == objID # D[k] <= ZERO_DISTANCE_THRESHOLD  # i == objID and near dups
                 d = 0f0
@@ -427,7 +431,10 @@ function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatri
                 d = d <= 0 ? 1f0 : exp(d * invσ)
             end
             
-            push!(cols, i); push!(rows, objID); push!(vals, d)
+            iii = ii + k
+            cols[iii] = i
+            rows[iii] = knns[k, i]
+            vals[iii] = d
         end
     end
     

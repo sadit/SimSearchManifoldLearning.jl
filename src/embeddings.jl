@@ -44,13 +44,13 @@ function optimize_embedding(graph,
     minbatch = SimilaritySearch.getminbatch(minbatch, size(graph, 2))
     
     prev = typemax(Float64)
-    curr = Ref(0.0) 
+    curr = [0.0]
     errlock = Threads.SpinLock()
     tol = convert(Float64, tol)
     errweight = 1 / length(query_embedding_)
 
     for ep in 1:n_epochs
-        curr[] = 0.0
+        curr[1] = 0.0
 
         @batch minbatch=minbatch per=thread for i in 1:size(graph, 2)
             err = 0.0 
@@ -70,17 +70,17 @@ function optimize_embedding(graph,
 
             lock(errlock)
             try
-                curr[] += err / length(range_)
+                curr[1] += err / length(range_)
             finally
                 unlock(errlock)
             end
         end
 
-        abs(prev - curr[]) < tol && begin           
+        abs(prev - curr[1]) < tol && begin
             break
         end
 
-        prev = curr[]
+        prev = curr[1]
         
         if self_reference # training -> update embedding
             ref_embedding_ .= query_embedding_
