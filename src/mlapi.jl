@@ -38,7 +38,7 @@ Note: The minimum performance is evaluated in a small training set took from the
 
 """
 struct ManifoldKnnIndex{DistType,MinRecall} <: ManifoldLearning.AbstractNearestNeighbors
-    index::AbstractSearchContext  # A simple wrapper
+    index::AbstractSearchIndex  # A simple wrapper
 end
 
 """
@@ -128,7 +128,7 @@ function fit(::Type{ManifoldKnnIndex{DistType,MinRecall_}}, X) where {DistType,M
         index!(G; parallel_block)
         if MinRecall_ > 0
             minrecall = (MinRecall_ isa AbstractFloat) ? MinRecall_ : 0.9
-            optimize!(G, OptimizeParameters(; kind=MinRecall(minrecall)))
+            optimize!(G, MinRecall(minrecall))
         end
         G
     end

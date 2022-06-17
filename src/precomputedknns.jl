@@ -2,13 +2,13 @@
 export PrecomputedAffinityMatrix, PrecomputedKnns
 
 """
-    struct PrecomputedAffinityMatrix <: AbstractSearchContext
+    struct PrecomputedAffinityMatrix <: AbstractSearchIndex
         dists # precomputed distances for all pairs (squared matrix)
     end
 
 An index-like wrapper for precomputed affinity matrix.
 """
-struct PrecomputedAffinityMatrix{MType<:AbstractMatrix} <: AbstractSearchContext
+struct PrecomputedAffinityMatrix{MType<:AbstractMatrix} <: AbstractSearchIndex
     dists::MType
 end
 
@@ -22,14 +22,14 @@ function SimilaritySearch.search(p::PrecomputedAffinityMatrix, q::Integer, res::
 end
 
 """
-    struct PrecomputedKnns <: AbstractSearchContext
+    struct PrecomputedKnns <: AbstractSearchIndex
         knns
         dists
     end
 
 An index-like wrapper for precomputed all-knns (as knns and dists matrices (k, n))
 """
-struct PrecomputedKnns{KnnsType<:AbstractMatrix,DistsType<:AbstractMatrix,DBType<:AbstractVector} <: AbstractSearchContext
+struct PrecomputedKnns{KnnsType<:AbstractMatrix,DistsType<:AbstractMatrix,DBType<:AbstractVector} <: AbstractSearchIndex
     knns::KnnsType
     dists::DistsType
     db::DBType

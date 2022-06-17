@@ -22,7 +22,7 @@ struct UMAP
     k::Int
     a::Float32
     b::Float32
-    index::Union{AbstractSearchContext,Nothing}   # this object is used with function barriers
+    index::Union{AbstractSearchIndex,Nothing}   # this object is used with function barriers
 end
 
 const SMOOTH_K_TOLERANCE = 1e-5
@@ -134,7 +134,7 @@ Wrapper for `fit` that computes `n_nearests` nearest neighbors on `index_or_data
 """
 function fit(
         t::Type{<:UMAP},
-        index_or_data::Union{<:AbstractSearchContext,<:AbstractDatabase,<:AbstractMatrix};
+        index_or_data::Union{<:AbstractSearchIndex,<:AbstractDatabase,<:AbstractMatrix};
         k::Integer=15,
         dist::SemiMetric=L2Distance(),
         minbatch::Integer=0,
