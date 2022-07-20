@@ -424,7 +424,8 @@ function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatri
         invσ = -1f0 / σ
         ii = (i-1) * n_neighbors
         @inbounds for (k, objID) in enumerate(I)
-            if fitting && i == objID # D[k] <= ZERO_DISTANCE_THRESHOLD  # i == objID and near dups
+            # D[k] <= ZERO_DISTANCE_THRESHOLD  # i == objID and near dups || objID == 0 (invalid objects)
+            if fitting && i == objID || objID == 0
                 d = 0f0
             else
                 d = D[k] - ρ
