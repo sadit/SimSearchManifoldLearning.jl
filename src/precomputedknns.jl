@@ -21,6 +21,10 @@ function SimilaritySearch.search(p::PrecomputedAffinityMatrix, q::Integer, res::
     res
 end
 
+SimilaritySearch.getpools(::PrecomputedAffinityMatrix) = SimilaritySearch.GlobalKnnResult
+SimilaritySearch.database(p::PrecomputedAffinityMatrix) = VectorDatabase(1:size(p.dists, 2))
+SimilaritySearch.database(p::PrecomputedAffinityMatrix, i) = i
+
 """
     struct PrecomputedKnns <: AbstractSearchIndex
         knns
@@ -41,6 +45,8 @@ function PrecomputedKnns(knns, dists)
 end
 
 SimilaritySearch.getpools(::PrecomputedKnns) = SimilaritySearch.GlobalKnnResult
+SimilaritySearch.database(p::PrecomputedKnns) = VectorDatabase(1:size(p.dists, 2))
+SimilaritySearch.database(p::PrecomputedKnns, i) = i
 
 function SimilaritySearch.search(p::PrecomputedKnns, q::Integer, res::KnnResult; pools=nothing)
     N = @view p.knns[:, q]
