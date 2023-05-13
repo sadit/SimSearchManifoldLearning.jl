@@ -15,7 +15,7 @@ end
 function SimilaritySearch.search(p::PrecomputedAffinityMatrix, q::Integer, res::KnnResult; pools=nothing)
     D = @view p.dists[:, q]
     @inbounds for i in eachindex(D)
-        push!(res, i, D[i])
+        push_item!(res, i, D[i])
     end
 
     res
@@ -53,7 +53,7 @@ function SimilaritySearch.search(p::PrecomputedKnns, q::Integer, res::KnnResult;
     D = @view p.dists[:, q]
 
     @inbounds for i in eachindex(N)
-        push!(res, N[i], D[i])
+        push_item!(res, N[i], D[i])
     end
 
     res
