@@ -111,6 +111,7 @@ const ApproxCosine = ManifoldKnnIndex{CosineDistance,0.9}
 """
 const ApproxAngle = ManifoldKnnIndex{AngleDistance,0.9}
 
+verboseindexing() = false
 
 ## ManifoldLearning api for nearest neighbor algorithms
 
@@ -123,7 +124,7 @@ function fit(::Type{ManifoldKnnIndex{DistType,MinRecall_}}, X) where {DistType,M
     index = if MinRecall_ == 1
         ExhaustiveSearch(; dist, db)
     else
-        G = SearchGraph(; dist, db)
+        G = SearchGraph(; dist, db, verbose=verboseindexing())
         parallel_block = length(db) < 512 || Threads.nthreads() == 1 ? 1 : 4 * Threads.nthreads()
         index!(G; parallel_block)
         if MinRecall_ > 0
