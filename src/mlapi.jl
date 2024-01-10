@@ -111,7 +111,6 @@ const ApproxCosine = ManifoldKnnIndex{CosineDistance,0.9}
 """
 const ApproxAngle = ManifoldKnnIndex{AngleDistance,0.9}
 
-verboseindexing() = false
 
 ## ManifoldLearning api for nearest neighbor algorithms
 
@@ -124,12 +123,12 @@ function fit(::Type{ManifoldKnnIndex{DistType,MinRecall_}}, X) where {DistType,M
     index = if MinRecall_ == 1
         ExhaustiveSearch(; dist, db)
     else
-        G = SearchGraph(; dist, db, verbose=verboseindexing())
-        parallel_block = length(db) < 512 || Threads.nthreads() == 1 ? 1 : 4 * Threads.nthreads()
-        index!(G; parallel_block)
+        G = SearchGraph(; dist, db)
+        ctx = getcontext(G)
+        index!(G, ctx)
         if MinRecall_ > 0
             minrecall = (MinRecall_ isa AbstractFloat) ? MinRecall_ : 0.9
-            optimize!(G, MinRecall(minrecall))
+            optimize_index!(G, ctx, MinRecall(minrecall))
         end
         G
     end
@@ -142,13 +141,13 @@ end
 
 Solves `k` nearest neighbors queries of `Q` using `G` (a SimilaritySearch index).
 """
-function ManifoldLearning.knn(G::ManifoldKnnIndex, Q::AbstractMatrix{T}, k::Integer; self::Bool=false, weights::Bool=true, minbatch=0, kwargs...) where {T<:Real}
+function ManifoldLearning.knn(G::ManifoldKnnIndex, Q::AbstractMatrix{T}, k::Integer; self::Bool=false, weights::Bool=true, kwargs...) where {T<:Real}
     m, n = size(Q)
     self && throw(ArgumentError("SimilaritySearch `"))
     n > k || throw(ArgumentError("Number of observations must be more than $(k)"))
     Q = MatrixDatabase(Q)
     KNNS = [KnnResult(k+self) for _ in 1:n]  # we can't use `allknn` efficiently in ManifoldLearning
-    @time searchbatch(G.index, Q, KNNS; minbatch)
+    @time searchbatch(G.index, getcontext(G.index), Q, KNNS)
 
     E = [collect(IdView(res)) for res in KNNS] # reusing the internal structure
     W = [collect(DistView(res)) for res in KNNS] # `KnnResult` distances are always Float32

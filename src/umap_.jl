@@ -130,14 +130,15 @@ Wrapper for `fit` that computes `n_nearests` nearest neighbors on `index_or_data
 # Keyword arguments
 - `k=15`: number of neighbors to compute
 - `dist=L2Distance()`: A distance function (see `Distances.jl`)
-- `minbatch=0`: controls how parallel computation is made, zero to use `SimilaritySearch` defaults and -1 to avoid parallel computation; passed to `@batch` macro of `Polyester` package.
+- `searchctx`: search context (hyperparameters, caches, etc)
 """
 function fit(
         t::Type{<:UMAP},
         index_or_data::Union{<:AbstractSearchIndex,<:AbstractDatabase,<:AbstractMatrix};
         k::Integer=15,
         dist::SemiMetric=L2Distance(),
-        minbatch::Integer=0,
+        searchctx=nothing,
+        minbatch = 0,
         kwargs...
         )
     index = if index_or_data isa AbstractMatrix
@@ -151,7 +152,8 @@ function fit(
 
     0 < k < length(index) || throw(ArgumentError("number of neighbors must be in 0 < k < number of points"))
 
-    @time knns, dists = allknn(index, k; minbatch)
+    searchctx = searchctx === nothing ? getcontext(index) : searchctx
+    @time knns, dists = allknn(index, searchctx, k)
     m = fit(t, knns, dists; minbatch, kwargs...)
     UMAP(m.graph, m.embedding, m.k, m.a, m.b, index)
 end
@@ -249,7 +251,7 @@ See `searchbatch` in `SimilaritySearch` to compute both (also for `AbstractDatab
 Note: the number of neighbors `k` (embedded into knn matrices) control the embedding. Larger values capture more global structure in the data, while small values capture more local structure.
 
 # Keyword Arguments
-
+- `searchctx = getcontext(model.index)`: the search context for the knn index (caches, hyperparameters, loggers, etc)
 - `n_epochs::Integer = 30`: the number of training epochs for embedding optimization
 - `learning_rate::Real = 1`: the initial learning rate during optimization
 - `learning_rate_decay::Real = 0.8`: A decay factor for the `learning_rate` param (on each epoch)
@@ -293,14 +295,15 @@ function predict(model::UMAP,
 end
 
 function predict(model::UMAP, Q;
-        k::Integer=15,
-        minbatch::Integer=0,
+        k::Integer=16,
+        searchctx = getcontext(model.index),
+        minbatch = 0,
         kwargs...
     )
     model.index === nothing && throw(ArgumentError("this UMAP model doesn't support solving knn queries since `model.index == nothing` please use the alternative function that accepts `knns` and `dists` matrices"))
     Q = convert(AbstractDatabase, Q)
     0 < k <= length(Q) || throw(ArgumentError("number of neighbors must be in 0 < k <= number of points"))
-    knns, dists = searchbatch(model.index, Q, k; minbatch)
+    knns, dists = searchbatch(model.index, searchctx, Q, k)
     predict(model, knns, dists; minbatch, kwargs...)
 end
 

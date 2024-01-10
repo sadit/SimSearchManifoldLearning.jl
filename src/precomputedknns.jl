@@ -12,7 +12,7 @@ struct PrecomputedAffinityMatrix{MType<:AbstractMatrix} <: AbstractSearchIndex
     dists::MType
 end
 
-function SimilaritySearch.search(p::PrecomputedAffinityMatrix, q::Integer, res::KnnResult; pools=nothing)
+function SimilaritySearch.search(p::PrecomputedAffinityMatrix, ctx::AbstractContext, q::Integer, res::KnnResult; pools=nothing)
     D = @view p.dists[:, q]
     @inbounds for i in eachindex(D)
         push_item!(res, i, D[i])
@@ -21,7 +21,7 @@ function SimilaritySearch.search(p::PrecomputedAffinityMatrix, q::Integer, res::
     res
 end
 
-SimilaritySearch.getpools(::PrecomputedAffinityMatrix) = SimilaritySearch.GlobalKnnResult
+SimilaritySearch.getcontext(::PrecomputedAffinityMatrix) = getcontext()
 SimilaritySearch.database(p::PrecomputedAffinityMatrix) = VectorDatabase(1:size(p.dists, 2))
 SimilaritySearch.database(p::PrecomputedAffinityMatrix, i) = i
 
@@ -44,11 +44,11 @@ function PrecomputedKnns(knns, dists)
     PrecomputedKnns(knns, dists, 1:size(knns, 2))
 end
 
-SimilaritySearch.getpools(::PrecomputedKnns) = SimilaritySearch.GlobalKnnResult
+SimilaritySearch.getcontext(::PrecomputedKnns) = getcontext()
 SimilaritySearch.database(p::PrecomputedKnns) = VectorDatabase(1:size(p.dists, 2))
 SimilaritySearch.database(p::PrecomputedKnns, i) = i
 
-function SimilaritySearch.search(p::PrecomputedKnns, q::Integer, res::KnnResult; pools=nothing)
+function SimilaritySearch.search(p::PrecomputedKnns, ctx::AbstractContext, q::Integer, res::KnnResult)
     N = @view p.knns[:, q]
     D = @view p.dists[:, q]
 
