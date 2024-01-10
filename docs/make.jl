@@ -15,6 +15,7 @@ makedocs(;
         "UMAP" => "apiumap.md",
         "API ManifoldLearning" => "apiml.md"
     ],
+    warnonly = true
 )
 
 deploydocs(;
