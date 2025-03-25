@@ -147,7 +147,7 @@ function ManifoldLearning.knn(G::ManifoldKnnIndex, Q::AbstractMatrix{T}, k::Inte
     n > k || throw(ArgumentError("Number of observations must be more than $(k)"))
     Q = MatrixDatabase(Q)
     KNNS = [KnnResult(k+self) for _ in 1:n]  # we can't use `allknn` efficiently in ManifoldLearning
-    @time searchbatch(G.index, getcontext(G.index), Q, KNNS)
+    @time SimilaritySearch.searchbatch!(G.index, getcontext(G.index), Q, KNNS)
 
     E = [collect(IdView(res)) for res in KNNS] # reusing the internal structure
     W = [collect(DistView(res)) for res in KNNS] # `KnnResult` distances are always Float32
