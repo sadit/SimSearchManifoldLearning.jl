@@ -153,8 +153,15 @@ function fit(
     0 < k < length(index) || throw(ArgumentError("number of neighbors must be in 0 < k < number of points"))
 
     searchctx = searchctx === nothing ? getcontext(index) : searchctx
-    @time knns, dists = allknn(index, searchctx, k)
-    m = fit(t, knns, dists; minbatch, kwargs...)
+    @time knns = allknn(index, searchctx, k)
+	knns_ = Matrix{UInt32}(undef, size(knns)...)
+	dists_ = Matrix{Float32}(undef, size(knns)...)
+	for i in CartesianIndices(knns)
+		p = knns[i]
+		knns_[i] = p.id
+		dists_[i] = p.weight
+	end
+    m = fit(t, knns_, dists_; minbatch, kwargs...)
     UMAP(m.graph, m.embedding, m.k, m.a, m.b, index)
 end
 
@@ -303,8 +310,16 @@ function predict(model::UMAP, Q;
     model.index === nothing && throw(ArgumentError("this UMAP model doesn't support solving knn queries since `model.index == nothing` please use the alternative function that accepts `knns` and `dists` matrices"))
     Q = convert(AbstractDatabase, Q)
     0 < k <= length(Q) || throw(ArgumentError("number of neighbors must be in 0 < k <= number of points"))
-    knns, dists = searchbatch(model.index, searchctx, Q, k)
-    predict(model, knns, dists; minbatch, kwargs...)
+    knns = searchbatch(model.index, searchctx, Q, k)
+	knns_ = Matrix{UInt32}(undef, size(knns)...)
+	dists_ = Matrix{Float32}(undef, size(knns)...)
+
+	for i in CartesianIndices(knns)
+		p = knns[i]
+		knns_[i] = p.id
+		dists_[i] = p.weight
+	end
+    predict(model, knns_, dists_; minbatch, kwargs...)
 end
 
 """
