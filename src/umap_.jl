@@ -352,9 +352,9 @@ function fuzzy_simplicial_set(knns::AbstractMatrix,
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
     if apply_fuzzy_combine
-        dropzeros!(combine_fuzzy_sets(fs_set, convert(Float32, set_operation_ratio)))
+        combine_fuzzy_sets(fs_set, convert(Float32, set_operation_ratio))
     else
-        dropzeros!(fs_set)
+        fs_set
     end
 end
 
@@ -427,11 +427,7 @@ Compute the membership strengths for the 1-skeleton of each fuzzy simplicial set
 """
 function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, local_connectivity::Integer, fitting::Bool; minbatch=0)
     n = length(knns)
-    rows = Vector{Int32}(undef, n)
-    cols = Vector{Int32}(undef, n)
-    vals = Vector{Float32}(undef, n)
-
-    sizehint!(rows, n); sizehint!(cols, n); sizehint!(vals, n)
+    X = Vector{Tuple{Int32,Int32,Float32}}(undef, n)
     n_neighbors, n = size(knns) # WARN n is now different
     minbatch = SimilaritySearch.getminbatch(minbatch, n)
 
@@ -451,11 +447,15 @@ function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatri
             end
             
             iii = ii + k
-            cols[iii] = i
-            rows[iii] = knns[k, i]
-            vals[iii] = d
+            X[iii] = (knns[k, i], i, d) # rows, cols, vals
         end
     end
-    
-    rows, cols, vals
+
+    sort!(X, rev=true, by=last)
+    while last(last(X)) == 0f0
+        pop!(X)
+    end
+    sort!(X, by=x->x[2]) # sort by cols
+   
+    [x[1] for x in X], [x[2] for x in X], [x[3] for x in X] # rows, cols, vals
 end

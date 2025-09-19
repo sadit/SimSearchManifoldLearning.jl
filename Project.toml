@@ -1,7 +1,7 @@
 name = "SimSearchManifoldLearning"
 uuid = "ca7ab67e-1aa0-420a-90d9-eb5aef468722"
 authors = ["Eric S. Tellez <donsadit@gmail.com>", "Dillon Daudert <dillongdaudert@gmail.com>"]
-version = "0.3.1"
+version = "0.3.2"
 
 [deps]
 Arpack = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"

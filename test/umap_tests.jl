@@ -129,10 +129,11 @@
         dists = Float32[0. 0. 0.; 2. 2. 3.]
         rhos = Float32[2., 1., 4.]
         sigmas = Float32[1., 1., 1.]
-        true_rows = [1, 2, 2, 1, 3, 2]
-        true_cols = [1, 1, 2, 2, 3, 3]
-        true_vals = Float32[0., 1., 0., exp(-1f0), 0., 1.]
+        true_rows = [2, 1, 2]
+        true_cols = [1, 2, 3]
+        true_vals = Float32[1., exp(-1f0), 1.]
         rows, cols, vals = compute_membership_strengths(knns, dists, 1, true)
+
         @show rows, cols, vals
         @test rows == true_rows
         @test cols == true_cols  # sigmas and rhos are computed inside and the given values don't match with those
