@@ -34,7 +34,7 @@ SimilaritySearch.database(p::PrecomputedAffinityMatrix, i) = i
 An index-like wrapper for precomputed all-knns (as knns and dists matrices (k, n))
 """
 struct PrecomputedKnns{KnnsType<:AbstractMatrix,DistsType<:AbstractMatrix,DBType<:AbstractVector} <: AbstractSearchIndex
-    knns::IdWeight
+    knns::IdDist
     db::DBType
 end
 

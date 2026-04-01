@@ -21,7 +21,7 @@ the non-linear dimensionality reduction methods of the `ManifoldLearning` packag
 It should be passed to the `fit` method as a type, e.g.,
 
 ```julia
-fit(ManifoldKnnIndex{L2Distance,0.9})  # will use an approximate index with an expected recall of 0.9
+fit(ManifoldKnnIndex{Dist.L2,0.9})  # will use an approximate index with an expected recall of 0.9
 ```
 
 `DistType` should be any in [`SimilaritySearch`](https://sadit.github.io/SimilaritySearch.jl/dev/api/#Distance-functions) package, or `Distances.jl`
@@ -46,70 +46,70 @@ end
 
 `ManifoldKnnIndex`'s type specialization for exact search with the Euclidean distance.
 """
-const ExactEuclidean = ManifoldKnnIndex{L2Distance,1}
+const ExactEuclidean = ManifoldKnnIndex{Dist.L2,1}
 
 """
     ExactManhattan
 
 `ManifoldKnnIndex`'s type specialization for exact search with the Manhattan distance.
 """
-const ExactManhattan = ManifoldKnnIndex{L1Distance,1}
+const ExactManhattan = ManifoldKnnIndex{Dist.L1,1}
 
 """
     ExactChebyshev
 
 `ManifoldKnnIndex`'s type specialization for exact search with the Chebyshev distance.
 """
-const ExactChebyshev = ManifoldKnnIndex{LInftyDistance,1}
+const ExactChebyshev = ManifoldKnnIndex{Dist.LInfty,1}
 
 """
     ExactCosine
 
 `ManifoldKnnIndex`'s type specialization for exact search with the cosine distance.
 """
-const ExactCosine = ManifoldKnnIndex{CosineDistance,1}
+const ExactCosine = ManifoldKnnIndex{Dist.Cosine,1}
 
 """
     ExactAngle
 
 `ManifoldKnnIndex`'s type specialization for exact search with the angle distance.
 """
-const ExactAngle = ManifoldKnnIndex{AngleDistance,1}
+const ExactAngle = ManifoldKnnIndex{Dist.Angle,1}
 
 """
     ApproxEuclidean
 
 `ManifoldKnnIndex`'s type specialization for approximate search with the Euclidean distance (expected recall of 0.9)
 """
-const ApproxEuclidean = ManifoldKnnIndex{L2Distance,0.9}
+const ApproxEuclidean = ManifoldKnnIndex{Dist.L2,0.9}
 
 """
     ApproxManhattan
 
 `ManifoldKnnIndex`'s type specialization for approximate search with the Manhattan distance (expected recall of 0.9)
 """
-const ApproxManhattan = ManifoldKnnIndex{L1Distance,0.9}
+const ApproxManhattan = ManifoldKnnIndex{Dist.L1,0.9}
 
 """
     ApproxChebyshev
 
 `ManifoldKnnIndex`'s type specialization for approximate search with the Chebyshev distance (expected recall of 0.9)
 """
-const ApproxChebyshev = ManifoldKnnIndex{LInftyDistance,0.9}
+const ApproxChebyshev = ManifoldKnnIndex{Dist.LInfty,0.9}
 
 """
     ApproxCosine
 
 `ManifoldKnnIndex`'s type specialization for approximate search with the Cosine distance (expected recall of 0.9)
 """
-const ApproxCosine = ManifoldKnnIndex{CosineDistance,0.9}
+const ApproxCosine = ManifoldKnnIndex{Dist.Cosine,0.9}
 
 """
     ApproxAngle
 
 `ManifoldKnnIndex`'s type specialization for approximate search with the angle distance (expected recall of 0.9)
 """
-const ApproxAngle = ManifoldKnnIndex{AngleDistance,0.9}
+const ApproxAngle = ManifoldKnnIndex{Dist.Angle,0.9}
 
 
 ## ManifoldLearning api for nearest neighbor algorithms
@@ -148,7 +148,7 @@ function ManifoldLearning.knn(G::ManifoldKnnIndex, Q::AbstractMatrix{T}, k::Inte
     Q = MatrixDatabase(Q)
 
     ctx = getcontext(G.index)
-    knns = zeros(IdWeight, k+self, n)
+    knns = zeros(IdDist, k+self, n)
     KNNS = [knnqueue(ctx, col) for col in eachcol(knns)]  # we can't use `allknn` efficiently in ManifoldLearning
     @time SimilaritySearch.searchbatch!(G.index, ctx, Q, KNNS)
 

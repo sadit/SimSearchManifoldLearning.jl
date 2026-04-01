@@ -1,7 +1,7 @@
 # initializing and optimizing embeddings
 
 """
-    optimize_embedding(graph, query_embedding_, ref_embedding_, n_epochs, alpha, min_dist, spread, repulsion_strength, neg_sample_rate, _a=nothing, _b=nothing; minbatch=0) -> embedding
+    optimize_embedding(graph, query_embedding_, ref_embedding_, n_epochs, alpha, min_dist, spread, repulsion_strength, neg_sample_rate, _a=nothing, _b=nothing) -> embedding
 
 Optimize an embedding by minimizing the fuzzy set cross entropy between the high and low dimensional simplicial sets using stochastic gradient descent.
 Optimize "query" samples with respect to "reference" samples. The optimization uses all available threads.
@@ -20,7 +20,6 @@ Optimize "query" samples with respect to "reference" samples. The optimization u
 # Keyword arguments:
 - `tol=1e-4`: tolerance to early stopping optimization, smaller values could improve embeddings but use higher computational resources.
 - `learning_rate_decay=0.9f0`: a scale factor for the learning rate (applied at each epoch)
-- `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function optimize_embedding(graph,
                             query_embedding_::AbstractMatrix,
@@ -32,8 +31,7 @@ function optimize_embedding(graph,
                             a::Float32,
                             b::Float32;
                             tol::Real=1e-4,
-                            learning_rate_decay::Float32=0.9f0,
-                            minbatch=0)
+                            learning_rate_decay::Float32=0.9f0)
     self_reference = query_embedding_ === ref_embedding_  # is it training mode?
     self_reference && (query_embedding_ = copy(ref_embedding_))
     query_embedding = MatrixDatabase(query_embedding_)
@@ -41,7 +39,7 @@ function optimize_embedding(graph,
     GR = rowvals(graph)
     # NZ = nonzeros(graph)
 
-    minbatch = SimilaritySearch.getminbatch(minbatch, size(graph, 2))
+    minbatch = SimilaritySearch.getminbatch(size(graph, 2))
     
     prev = typemax(Float64)
     curr = [0.0]

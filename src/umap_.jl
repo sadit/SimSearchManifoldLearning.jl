@@ -55,7 +55,6 @@ It uses all available threads for the projection.
 - `repulsion_strength::Real = 1`: the weighting of negative samples during the optimization process.
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
 - `tol::Real = 1e-4`: tolerance to early stopping while optimizing embeddings.
-- `minbatch=0`: controls how parallel computation is made, zero to use `SimilaritySearch` defaults and -1 to avoid parallel computation; passed to `@batch` macro of `Polyester` package.
 - `a = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
 - `b = nothing`: this controls the embedding. By default, this is determined automatically by `min_dist` and `spread`.
 
@@ -74,8 +73,7 @@ function fit(::Type{UMAP},
     local_connectivity::Integer = 1,
     repulsion_strength::Float32 = 1f0,
     neg_sample_rate::Integer = 5,
-    tol=1e-4,
-    minbatch::Integer = 0
+    tol=1e-4
 )
     min_dist = convert(Float32, min_dist)
     spread = convert(Float32, spread)
@@ -95,13 +93,13 @@ function fit(::Type{UMAP},
 
     n_neighbors, n = size(knns)
     println(stderr, "*** computing graph")
-    timegraph = @elapsed graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, true; minbatch)
+    timegraph = @elapsed graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, true)
     println(stderr, "*** layout embedding $(typeof(layout))")
     timeinit = @elapsed embedding = initialize_embedding(layout, graph, knns, dists, maxoutdim)
     println(stderr, "*** fit ab / embedding")
     a, b = fit_ab(min_dist, spread, nothing, nothing)
     println(stderr, "*** opt embedding")
-    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; minbatch, tol, learning_rate_decay)
+    timeopt = @elapsed embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; tol, learning_rate_decay)
     # TODO: if target variable y is passed, then construct target graph
     #       in the same manner and do a fuzzy simpl set intersection
     println(stderr,
@@ -117,8 +115,7 @@ end
 """
     fit(::Type{<:UMAP}, index_or_data;
         k=15,
-        dist::SemiMetric=L2Distance,
-        minbatch=0,
+        dist::SemiMetric=Dist.L2,
         kwargs...)
 
 Wrapper for `fit` that computes `n_nearests` nearest neighbors on `index_or_data` and passes these and `kwargs` to regular `fit`.
@@ -129,16 +126,15 @@ Wrapper for `fit` that computes `n_nearests` nearest neighbors on `index_or_data
 
 # Keyword arguments
 - `k=15`: number of neighbors to compute
-- `dist=L2Distance()`: A distance function (see `Distances.jl`)
+- `dist=Dist.L2()`: A distance function (see `Distances.jl`)
 - `searchctx`: search context (hyperparameters, caches, etc)
 """
 function fit(
         t::Type{<:UMAP},
         index_or_data::Union{<:AbstractSearchIndex,<:AbstractDatabase,<:AbstractMatrix};
         k::Integer=15,
-        dist::SemiMetric=L2Distance(),
+        dist::SemiMetric=Dist.L2(),
         searchctx=nothing,
-        minbatch = 0,
         kwargs...
         )
     index = if index_or_data isa AbstractMatrix
@@ -159,9 +155,9 @@ function fit(
 	for i in CartesianIndices(knns)
 		p = knns[i]
 		knns_[i] = p.id
-		dists_[i] = p.weight
+		dists_[i] = p.dist
 	end
-    m = fit(t, knns_, dists_; minbatch, kwargs...)
+    m = fit(t, knns_, dists_; kwargs...)
     UMAP(m.graph, m.embedding, m.k, m.a, m.b, index)
 end
 
@@ -177,7 +173,6 @@ Improves the internal embedding of the model refining with more epochs
 - `repulsion_strength::Float32 = 1f0`.
 - `neg_sample_rate::Integer = 5`.
 - `tol::Real = 1e-4`: tolerance to early stopping while optimizing embeddings.
-- `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function optimize_embedding!(U::UMAP;
         n_epochs=50,
@@ -185,10 +180,9 @@ function optimize_embedding!(U::UMAP;
         learning_rate_decay::Real = 0.9f0,
         repulsion_strength::Float32 = 1f0,
         neg_sample_rate::Integer = 5,
-        tol=1e-4,
-        minbatch::Integer = 0
+        tol=1e-4
     )
-    optimize_embedding(U.graph, U.embedding, U.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, U.a, U.b; tol, learning_rate_decay, minbatch)
+    optimize_embedding(U.graph, U.embedding, U.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, U.a, U.b; tol, learning_rate_decay)
     U
 end
 
@@ -205,7 +199,6 @@ Reuses a previously computed model with a different number of components
 - `repulsion_strength::Float32 = 1f0`: repulsion force (for negative sampling)
 - `neg_sample_rate::Integer = 5`: how many negative examples per object are used.
 - `tol::Real = 1e-4`: tolerance to early stopping while optimizing embeddings.
-- `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function fit(
         U::UMAP, maxoutdim::Integer;
@@ -215,7 +208,6 @@ function fit(
         repulsion_strength::Float32 = 1f0,
         neg_sample_rate::Integer = 5,
         graph = U.graph,
-        minbatch=0,
         tol=1e-4,
         a = U.a,
         b = U.b
@@ -231,7 +223,7 @@ function fit(
     learning_rate = convert(Float32, learning_rate)
     learning_rate_decay = convert(Float32, learning_rate_decay)
     repulsion_strength = convert(Float32, repulsion_strength)
-    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; tol, learning_rate_decay, minbatch)
+    embedding = optimize_embedding(graph, embedding, embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, a, b; tol, learning_rate_decay)
     UMAP(graph, embedding, U.k, a, b, U.index)
 end
 
@@ -267,7 +259,6 @@ Note: the number of neighbors `k` (embedded into knn matrices) control the embed
 - `repulsion_strength::Real = 1`: the weighting of negative samples during the optimization process.
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
 - `tol::Real = 1e-4`: tolerance to early stopping while optimizing embeddings.
-- `minbatch=0`: controls how parallel computation is made. See [`SimilaritySearch.getminbatch`](@ref) and `@batch` (`Polyester` package).
 """
 function predict(model::UMAP,
                 knns::AbstractMatrix{<:Integer},
@@ -279,8 +270,7 @@ function predict(model::UMAP,
                 local_connectivity::Integer = 1,
                 repulsion_strength::Real = 1.0,
                 neg_sample_rate::Integer = 5,
-                tol::Real=1e-4,
-                minbatch::Integer = 0
+                tol::Real=1e-4
     )
     
     set_operation_ratio = convert(Float32, set_operation_ratio)
@@ -296,15 +286,14 @@ function predict(model::UMAP,
     n_epochs = max(1, n_epochs)
     # main algorithm
     n = size(model.embedding, 2)
-    graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false, false; minbatch)
+    graph = fuzzy_simplicial_set(knns, dists, n, local_connectivity, set_operation_ratio, false, false)
     E = initialize_embedding(graph, model.embedding)
-    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, model.a, model.b; tol, learning_rate_decay, minbatch)
+    optimize_embedding(graph, E, model.embedding, n_epochs, learning_rate, repulsion_strength, neg_sample_rate, model.a, model.b; tol, learning_rate_decay)
 end
 
 function predict(model::UMAP, Q;
         k::Integer=16,
         searchctx = getcontext(model.index),
-        minbatch = 0,
         kwargs...
     )
     model.index === nothing && throw(ArgumentError("this UMAP model doesn't support solving knn queries since `model.index == nothing` please use the alternative function that accepts `knns` and `dists` matrices"))
@@ -317,13 +306,13 @@ function predict(model::UMAP, Q;
 	for i in CartesianIndices(knns)
 		p = knns[i]
 		knns_[i] = p.id
-		dists_[i] = p.weight
+		dists_[i] = p.dist
 	end
-    predict(model, knns_, dists_; minbatch, kwargs...)
+    predict(model, knns_, dists_; kwargs...)
 end
 
 """
-    fuzzy_simplicial_set(knns, dists, n_points, local_connectivity, set_op_ratio, apply_fuzzy_combine=true; minbatch=0) -> membership_graph::SparseMatrixCSC, 
+    fuzzy_simplicial_set(knns, dists, n_points, local_connectivity, set_op_ratio, apply_fuzzy_combine=true) -> membership_graph::SparseMatrixCSC, 
 
 Construct the local fuzzy simplicial sets of each point represented by its distances
 to its `k` nearest neighbors, stored in `knns` and `dists`, normalizing the distances
@@ -343,11 +332,10 @@ function fuzzy_simplicial_set(knns::AbstractMatrix,
                               local_connectivity,
                               set_operation_ratio,
                               fitting=true,
-                              apply_fuzzy_combine=true;
-                              minbatch=0)
+                              apply_fuzzy_combine=true)
     # @time σs, ρs = smooth_knn_dists(dists, k, local_connectivity)
     # @time rows, cols, vals = compute_membership_strengths(knns, dists, σs, ρs)
-    rows, cols, vals = compute_membership_strengths(knns, dists, local_connectivity, fitting; minbatch)
+    rows, cols, vals = compute_membership_strengths(knns, dists, local_connectivity, fitting)
     # transform uses n_points != size(knns, 2)
     fs_set = sparse(rows, cols, vals, n_points, size(knns, 2))
 
@@ -421,15 +409,15 @@ end
 end
 
 """
-    compute_membership_strengths(knns, dists, local_connectivity, fitting; minbatch=0) -> rows, cols, vals
+    compute_membership_strengths(knns, dists, local_connectivity, fitting) -> rows, cols, vals
 
 Compute the membership strengths for the 1-skeleton of each fuzzy simplicial set.
 """
-function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, local_connectivity::Integer, fitting::Bool; minbatch=0)
+function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatrix, local_connectivity::Integer, fitting::Bool)
     n = length(knns)
     X = Vector{Tuple{Int32,Int32,Float32}}(undef, n)
     n_neighbors, n = size(knns) # WARN n is now different
-    minbatch = SimilaritySearch.getminbatch(minbatch, n)
+    minbatch = SimilaritySearch.getminbatch(n)
 
     @batch minbatch=minbatch per=thread for i in 1:n
         D = @view dists[:, i]

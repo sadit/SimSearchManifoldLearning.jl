@@ -75,8 +75,8 @@ Initialize the graph layout with spectral embedding.
 """
 function spectral_layout(graph::SparseMatrixCSC{T},
                          embed_dim::Integer) where {T<:Real}
-    graph_f64 = convert.(Float64, graph)
-    D_ = Diagonal(dropdims(sum(graph_f64; dims=2); dims=2))
+    graph = convert.(Float64, graph)
+    D_ = Diagonal(dropdims(sum(graph; dims=2); dims=2))
     D = inv(sqrt(D_))
     # normalized laplacian
     L = Symmetric(I - D*graph*D)
