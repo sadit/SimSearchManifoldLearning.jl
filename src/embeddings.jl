@@ -42,43 +42,45 @@ function optimize_embedding(graph,
     minbatch = SimilaritySearch.getminbatch(size(graph, 2))
     
     prev = typemax(Float64)
-    curr = [0.0]
-    errlock = Threads.SpinLock()
+    curr = 0.0
     tol = convert(Float64, tol)
     errweight = 1 / length(query_embedding_)
 
     for ep in 1:n_epochs
-        curr[1] = 0.0
+        @BATCHES minbatch begin
+            @BEGIN
+                batch_errs = zeros(Float64, @nbatches)
+            @BEGINBATCH
+                batch_acc = 0.0
+            @LOOP for i in 1:size(graph, 2)
+                err = 0.0 
+                @inbounds QEi = query_embedding[i]
+                range_ = nzrange(graph, i)
+                @inbounds for ind in range_
+                    j = GR[ind]
+                    REj = ref_embedding[j]
+                    err += errweight * _gd_loop(QEi, REj, a, b, learning_rate)
 
-        @BATCHES minbatch for i in 1:size(graph, 2)
-            err = 0.0 
-            @inbounds QEi = query_embedding[i]
-            range_ = nzrange(graph, i)
-            @inbounds for ind in range_
-                j = GR[ind]
-                REj = ref_embedding[j]
-                err += errweight * _gd_loop(QEi, REj, a, b, learning_rate)
-
-                for _ in 1:neg_sample_rate
-                    k = rand(eachindex(ref_embedding))
-                    i == k && self_reference && continue
-                    _gd_neg_loop(QEi, ref_embedding[k], a, b, repulsion_strength, learning_rate)
+                    for _ in 1:neg_sample_rate
+                        k = rand(eachindex(ref_embedding))
+                        i == k && self_reference && continue
+                        _gd_neg_loop(QEi, ref_embedding[k], a, b, repulsion_strength, learning_rate)
+                    end
                 end
-            end
 
-            lock(errlock)
-            try
-                curr[1] += err / length(range_)
-            finally
-                unlock(errlock)
+                batch_acc += err / length(range_)
             end
+            @ENDBATCH
+                batch_errs[@batchid] = batch_acc
+            @END
+                curr = sum(batch_errs)
         end
 
-        abs(prev - curr[1]) < tol && begin
+        abs(prev - curr) < tol && begin
             break
         end
 
-        prev = curr[1]
+        prev = curr
         
         if self_reference # training -> update embedding
             ref_embedding_ .= query_embedding_
