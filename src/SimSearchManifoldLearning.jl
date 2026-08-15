@@ -5,8 +5,8 @@ using Distances
 using LinearAlgebra
 using LsqFit: curve_fit
 using SimilaritySearch
+using SimilaritySearch: @BATCHES
 using SparseArrays
-using Polyester
 
 import StatsAPI: fit, predict
 export fit, predict

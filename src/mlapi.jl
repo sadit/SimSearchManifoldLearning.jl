@@ -121,10 +121,10 @@ function fit(::Type{ManifoldKnnIndex{DistType,MinRecall_}}, X) where {DistType,M
     dist = DistType()
 
     index = if MinRecall_ == 1
-        ExhaustiveSearch(; dist, db)
+        ExhaustiveSearch(dist, db)
     else
-        G = SearchGraph(; dist, db)
-        ctx = getcontext(G)
+        G = SearchGraph(dist, db)
+        ctx = SearchGraphContext()
         index!(G, ctx)
         if MinRecall_ > 0
             minrecall = (MinRecall_ isa AbstractFloat) ? MinRecall_ : 0.9
@@ -143,29 +143,20 @@ Solves `k` nearest neighbors queries of `Q` using `G` (a SimilaritySearch index)
 """
 function ManifoldLearning.knn(G::ManifoldKnnIndex, Q::AbstractMatrix{T}, k::Integer; self::Bool=false, weights::Bool=true, kwargs...) where {T<:Real}
     m, n = size(Q)
-    self && throw(ArgumentError("SimilaritySearch "))
     n > k || throw(ArgumentError("Number of observations must be more than $(k)"))
-    Q = MatrixDatabase(Q)
+    Qdb = MatrixDatabase(Q)
 
-    ctx = getcontext(G.index)
-    knns = zeros(IdDist, k+self, n)
-    KNNS = [knnqueue(ctx, col) for col in eachcol(knns)]  # we can't use `allknn` efficiently in ManifoldLearning
-    @time SimilaritySearch.searchbatch!(G.index, ctx, Q, KNNS)
+    ctx = G.index isa SearchGraph ? SearchGraphContext() : GenericContext()
+    ksearch = self ? k : k + 1
+    ids, dists = searchbatch(G.index, ctx, Qdb, ksearch; sorted=true)
 
-	E = Vector{Vector{UInt32}}(undef, n)
-	W = Vector{Vector{Float32}}(undef, n)
+    E = Vector{Vector{Int}}(undef, n)
+    W = Vector{Vector{Float32}}(undef, n)
 
-    for (i, res) in enumerate(KNNS)
-		if self
-			while length(res) > 0
-					if nearest(res).weight < eps(W)
-					    popfirst!(res)
-	   			end
-	        end
-		end
-
-		E[i] = collect(IdView(res))
-		W[i] = collect(DistView(res))
+    for j in 1:n
+        range = self ? (1:k) : (2:(k+1))
+        E[j] = Int.(ids[range, j])
+        W[j] = Float32.(dists[range, j])
     end
 
     E, W

@@ -50,7 +50,7 @@ function optimize_embedding(graph,
     for ep in 1:n_epochs
         curr[1] = 0.0
 
-        @batch minbatch=minbatch per=thread for i in 1:size(graph, 2)
+        @BATCHES minbatch for i in 1:size(graph, 2)
             err = 0.0 
             @inbounds QEi = query_embedding[i]
             range_ = nzrange(graph, i)

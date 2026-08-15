@@ -122,12 +122,12 @@ Wrapper for `fit` that computes `n_nearests` nearest neighbors on `index_or_data
 
 # Arguments
 
-- `index_or_data`: an already constructed index (see `SimilaritySearch`), a matrix, or an abstact database (`SimilaritySearch`)
+- `index_or_data`: an already constructed index (see `SimilaritySearch`), a matrix, or an abstract database (`SimilaritySearch`)
 
 # Keyword arguments
 - `k=15`: number of neighbors to compute
 - `dist=Dist.L2()`: A distance function (see `Distances.jl`)
-- `searchctx`: search context (hyperparameters, caches, etc)
+- `searchctx=nothing`: search context (hyperparameters, caches, etc)
 """
 function fit(
         t::Type{<:UMAP},
@@ -138,25 +138,18 @@ function fit(
         kwargs...
         )
     index = if index_or_data isa AbstractMatrix
-        db = convert(AbstractDatabase, index_or_data)
-        ExhaustiveSearch(; dist, db)
+        db = MatrixDatabase(index_or_data)
+        ExhaustiveSearch(dist, db)
     elseif index_or_data isa AbstractDatabase
-        ExhaustiveSearch(; dist, db=index_or_data)
+        ExhaustiveSearch(dist, index_or_data)
     else
         index_or_data
     end
 
     0 < k < length(index) || throw(ArgumentError("number of neighbors must be in 0 < k < number of points"))
 
-    searchctx = searchctx === nothing ? getcontext(index) : searchctx
-    @time knns = allknn(index, searchctx, k)
-	knns_ = Matrix{UInt32}(undef, size(knns)...)
-	dists_ = Matrix{Float32}(undef, size(knns)...)
-	for i in CartesianIndices(knns)
-		p = knns[i]
-		knns_[i] = p.id
-		dists_[i] = p.dist
-	end
+    searchctx = searchctx === nothing ? (index isa SearchGraph ? SearchGraphContext() : GenericContext()) : searchctx
+    knns_, dists_ = allknn(index, searchctx, k)
     m = fit(t, knns_, dists_; kwargs...)
     UMAP(m.graph, m.embedding, m.k, m.a, m.b, index)
 end
@@ -246,15 +239,6 @@ See `searchbatch` in `SimilaritySearch` to compute both (also for `AbstractDatab
 - `model`: The fitted model
 - `knns`: matrix of identifiers (integers) of size ``(k, |Q|)``
 - `dists`: matrix of distances (floating point values) of size ``(k, |Q|)``
-
-Note: the number of neighbors `k` (embedded into knn matrices) control the embedding. Larger values capture more global structure in the data, while small values capture more local structure.
-
-# Keyword Arguments
-- `searchctx = getcontext(model.index)`: the search context for the knn index (caches, hyperparameters, loggers, etc)
-- `n_epochs::Integer = 30`: the number of training epochs for embedding optimization
-- `learning_rate::Real = 1`: the initial learning rate during optimization
-- `learning_rate_decay::Real = 0.8`: A decay factor for the `learning_rate` param (on each epoch)
-- `set_operation_ratio::Real = 1`: interpolates between fuzzy set union and fuzzy set intersection when constructing the UMAP graph (global fuzzy simplicial set). The value of this parameter should be between 1.0 and 0.0: 1.0 indicates pure fuzzy union, while 0.0 indicates pure fuzzy intersection.
 - `local_connectivity::Integer = 1`: the number of nearest neighbors that should be assumed to be locally connected. The higher this value, the more connected the manifold becomes. This should not be set higher than the intrinsic dimension of the manifold.
 - `repulsion_strength::Real = 1`: the weighting of negative samples during the optimization process.
 - `neg_sample_rate::Integer = 5`: the number of negative samples to select for each positive sample. Higher values will increase computational cost but result in slightly more accuracy.
@@ -293,21 +277,14 @@ end
 
 function predict(model::UMAP, Q;
         k::Integer=16,
-        searchctx = getcontext(model.index),
+        searchctx = nothing,
         kwargs...
     )
     model.index === nothing && throw(ArgumentError("this UMAP model doesn't support solving knn queries since `model.index == nothing` please use the alternative function that accepts `knns` and `dists` matrices"))
     Q = convert(AbstractDatabase, Q)
     0 < k <= length(Q) || throw(ArgumentError("number of neighbors must be in 0 < k <= number of points"))
-    knns = searchbatch(model.index, searchctx, Q, k)
-	knns_ = Matrix{UInt32}(undef, size(knns)...)
-	dists_ = Matrix{Float32}(undef, size(knns)...)
-
-	for i in CartesianIndices(knns)
-		p = knns[i]
-		knns_[i] = p.id
-		dists_[i] = p.dist
-	end
+    searchctx = searchctx === nothing ? (model.index isa SearchGraph ? SearchGraphContext() : GenericContext()) : searchctx
+    knns_, dists_ = searchbatch(model.index, searchctx, Q, k; sorted=true)
     predict(model, knns_, dists_; kwargs...)
 end
 
@@ -419,7 +396,7 @@ function compute_membership_strengths(knns::AbstractMatrix, dists::AbstractMatri
     n_neighbors, n = size(knns) # WARN n is now different
     minbatch = SimilaritySearch.getminbatch(n)
 
-    @batch minbatch=minbatch per=thread for i in 1:n
+    @BATCHES minbatch for i in 1:n
         D = @view dists[:, i]
         I = @view knns[:, i]
         ρ, σ = smooth_knn_dists_vector(D, n_neighbors, local_connectivity)
